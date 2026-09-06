@@ -14,7 +14,7 @@
     },
     "tools.toolrush_shell": {
       "file": "lib/tools/toolrush_shell.py",
-      "sha256": "2f88075b2b61a10eb5304db75ad0aabda720d936793c723a567f48b67c8a9e94"
+      "sha256": "a23fb30f3848cc3e0f39aa42b8b8805ccdbc3094088436e8062f978697374bce"
     },
     "tools.toolrush_rpc": {
       "file": "lib/tools/toolrush_rpc.py",
