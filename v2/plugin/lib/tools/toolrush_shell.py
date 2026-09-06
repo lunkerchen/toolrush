@@ -49,8 +49,10 @@ class WarmShell:
                     pgid = os.getpgid(self.proc.pid)
                     os.killpg(pgid, signal.SIGTERM)
                     time.sleep(0.05)
-                    if self.proc.poll() is None:
+                    try:
                         os.killpg(pgid, signal.SIGKILL)
+                    except (OSError, ProcessLookupError):
+                        pass
                 except (OSError, ProcessLookupError):
                     if self.proc.poll() is None:
                         self.proc.kill()

@@ -5,7 +5,7 @@
 <p align="center">
   <a href="#the-problem"><img src="https://img.shields.io/badge/status-已上線運作-22c55e?style=flat-square" alt="shipped and live"/></a>
   <a href="v2/README.md"><img src="https://img.shields.io/badge/version-2.1%20(macOS)-f97316?style=flat-square" alt="v2.1 macOS"/></a>
-  <a href="v2/evidence/"><img src="https://img.shields.io/badge/tests-206%20passed-4ade80?style=flat-square" alt="206 tests passed"/></a>
+  <a href="v2/evidence/"><img src="https://img.shields.io/badge/tests-206%20passed%20(upstream)-4ade80?style=flat-square" alt="206 tests passed (upstream)"/></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%2F%20Windows-38bdf8?style=flat-square" alt="macOS / Windows"/>
 </p>
 
@@ -26,7 +26,7 @@
 | **Terminal 呼叫延遲 (中位數)** | 45.57 ms | 7.96 ms | **5.72x (降低 82.5% 開銷)** |
 | **底層 Raw Bash 執行** | 3.08 ms | 1.07 ms | **2.88x 提速** |
 | **批次多目標搜尋 (`search_files` 4 目標)** | 230.50 ms | 28.92 ms | **7.97x (節省 87.5% 耗時)** |
-| **行程管理與清理** | 頂層 PID 終止（易殘留孤兒） | POSIX Process Group 連鎖回收 | **100% 杜絕背景孤兒行程** |
+| **行程管理與清理** | 頂層 PID 終止（易殘留孤兒） | POSIX Process Group 連鎖回收 (`killpg`) | **健全回收中斷與逾時子程序** |
 
 ### 2. Windows 實測數據（原作者基準）
 
@@ -50,7 +50,7 @@
 1. **單一搜尋核心，極速傳輸**：不以粗糙邏輯重寫搜尋。直連 `rg` 二進制檔，完整保留 `.gitignore` 規則、正則語法、Context 旗標與設定檔；原生檔案讀取完全復用 upstream 的邊界限制、安全守衛、二進制/文件路由與輸出組合器。
 2. **正確性先於速度**：修復搜尋結果結尾損壞 JSON 的問題；分頁具備穩定排序與「更多結果」標記；正則反斜線與前置連字號維持字面量解析；統一處理換行（CRLF）與末行無換行的情況。
 3. **真正的程式化並行**：在 `execute_code` 中提供 `from hermes_tools import parallel`。單次 RPC 可並行分發 1–16 個唯讀操作至最多 4 個工作執行緒，嚴格維持輸入順序，並完整保持鑑權、白名單與呼叫配額限制。寫入與終端指令一律拒絕並行。
-4. **健全的串流常駐暖 Shell（Warm-Shell）**：維護單一持久化 bash，透過 OS pipe 串流傳輸，具備有限記憶體解析、原子快照提交、精確保留 Exit Code/CWD/環境變數。在 macOS/POSIX 上透過 `os.setsid` 與 `os.killpg` 徹底殺死取消的指令樹；在 Windows 上維持專屬行程管理。
+4. **健全的串流常駐暖 Shell（Warm-Shell）**：維護單一持久化 bash，透過 OS pipe 串流傳輸，具備有限記憶體解析、原子快照提交、精確保留 Exit Code/CWD/環境變數。在 macOS/POSIX 上透過 `os.setsid` 與 `os.killpg` 乾淨終止取消與逾時的指令樹；在 Windows 上維持專屬行程管理。
 5. **強化調度准入防禦**：靜態檢查拒絕隱式寫入（`wget`、`curl -o`、`sed w`、分支建立、環境包裝腳本、共用 CWD 異動）。准入不等於授權：被拒絕加速的操作依然會以安全標準循序流程執行。
 6. **更新存活機制**：外掛於記憶體中動態掛載相容 patch，不修改 upstream 源碼。遇到未知變動時主動降級發出警告，絕不覆蓋新版官方程式碼。
 7. **完整診斷與回滾機制**：提供 `doctor.py --smoke`、各面向獨立開關（`TOOLRUSH_*=0`）、主開關 `toolrush.enabled: false`，以及完整可重現的基準測試腳本。
@@ -62,7 +62,7 @@
 開啟終端機貼上以下指令，即可從本 Fork 自動下載並啟用：
 
 ```bash
-mkdir -p ~/.hermes/plugins && git clone -b feat/macos-support --depth=1 https://github.com/lunkerchen/toolrush.git /tmp/tr-install && cp -r /tmp/tr-install/v2/plugin ~/.hermes/plugins/toolrush && rm -rf /tmp/tr-install && hermes plugins enable toolrush
+mkdir -p ~/.hermes/plugins && git clone --depth=1 https://github.com/lunkerchen/toolrush.git /tmp/tr-install && cp -r /tmp/tr-install/v2/plugin ~/.hermes/plugins/toolrush && rm -rf /tmp/tr-install && hermes plugins enable toolrush
 ```
 
 安裝完成後於下次啟動 Hermes Agent 時即刻生效。
@@ -77,7 +77,7 @@ mkdir -p ~/.hermes/plugins && git clone -b feat/macos-support --depth=1 https://
   <img src="https://img.shields.io/badge/live%20activation-verified%20in%20running%20kernel-38bdf8?style=for-the-badge" alt="live activation verified"/>
 </p>
 
-- **通過 206 個回歸測試案例**，0 失敗、0 跳過。
+- **通過 206 個回歸測試案例**（Upstream 基準），0 失敗、0 跳過。
 - **5 組對照反向測試（Negative Controls）**：當加速修復被還原時皆如預期觸發失敗，杜絕虛假通過。
 - **實機端到端驗證**：已於實際運行的 `execute_code` 核心中成功驗證 `parallel` RPC，重啟後設定與憑證經 SHA-256 驗證位元組完全一致。
 - 完整合約判決、XML 證據與原始基準測試數據見 [`v2/evidence/`](v2/evidence/)。
