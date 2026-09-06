@@ -1,48 +1,75 @@
 <p align="center">
-  <img src="docs/assets/hero.svg" alt="ToolRush — kill the tool-call tax" width="100%"/>
+  <img src="docs/assets/hero.svg" alt="ToolRush — 終結工具呼叫稅" width="100%"/>
 </p>
 
 <p align="center">
-  <a href="#the-problem"><img src="https://img.shields.io/badge/status-shipped%20%26%20live-22c55e?style=flat-square" alt="shipped and live"/></a>
-  <a href="v2/README.md"><img src="https://img.shields.io/badge/version-2.0-f97316?style=flat-square" alt="v2.0"/></a>
+  <a href="#the-problem"><img src="https://img.shields.io/badge/status-已上線運作-22c55e?style=flat-square" alt="shipped and live"/></a>
+  <a href="v2/README.md"><img src="https://img.shields.io/badge/version-2.1%20(macOS)-f97316?style=flat-square" alt="v2.1 macOS"/></a>
   <a href="v2/evidence/"><img src="https://img.shields.io/badge/tests-206%20passed-4ade80?style=flat-square" alt="206 tests passed"/></a>
-  <img src="https://img.shields.io/badge/platform-Windows%20%2F%20MSYS-38bdf8?style=flat-square" alt="Windows / MSYS"/>
+  <img src="https://img.shields.io/badge/platform-macOS%20%2F%20Windows-38bdf8?style=flat-square" alt="macOS / Windows"/>
 </p>
 
-Modern agent models stream tokens faster than their harness can read a file. The bottleneck stopped being tokens/sec — it became the **tool-call tax**: every `read_file`, `search_files`, and `terminal` call paying process spawns, shell round-trips, wrapper layers, and full re-dispatch for work that costs microseconds.
+現代 AI Agent 模型串流輸出 Token 的速度，往往比宿主環境讀取一個檔案還要快。效能瓶頸早已不再是每秒生成多少 Token（TPS），而是**工具呼叫稅（Tool-Call Tax）**：每一次呼叫 `read_file`、`search_files` 與 `terminal`，背後都在為原本只要幾微秒的操作承受反覆開關行程（Process Spawn）、Shell 往返跳轉、包裝層序列化與重複分發的沈重負擔。
 
-**ToolRush kills the tax.** It is a low-overhead execution layer for [Hermes Agent](https://github.com/NousResearch/hermes-agent): same tools, same output envelopes, same safety gates — radically cheaper transport, plus real batched parallelism and survival across harness updates.
+**ToolRush 徹底終結這項代價。** 它是專為 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 打造的低開銷執行層：完全保留原生工具介面、相同的輸出規格與安全防禦邊界，同時提供極低延遲傳輸、真正的程式化批次並行能力，以及跨版本升級相容機制。
 
 <p align="center">
-  <img src="docs/assets/benchmarks.svg" alt="Benchmark bars: stock shell path vs ToolRush v2 on the real installed harness" width="100%"/>
+  <img src="docs/assets/benchmarks.svg" alt="實測基準圖表：原生 Shell 與 ToolRush 於正式環境之對比" width="100%"/>
 </p>
 
-## Results (measured on the real installed harness — no mocks, no fixtures)
+## 實測成果（於真實安裝之 Hermes 環境測量 — 無 Mock、無假數據）
 
-| Lane | Before | After | Win |
+### 1. macOS 實測數據（Apple Silicon M 系列 · Hermes Agent v0.21.0）
+
+| 執行面向 | 原生 Hermes (Cold Spawn) | ToolRush v2 (Warm Shell) | 提速幅度 |
 |---|---:|---:|---:|
-| **Native file reads** | 255.23 ms | 4.44 ms | **57.5x** |
-| **Warm terminal** (persistent shell) | 285 ms | 12.1 ms | **23.6x** |
-| **Search transport** (direct `rg`) | 183–455 ms | 27–97 ms | **4.7–6.8x** |
-| **Batched parallel RPC** | 108 ms seq | 53 ms batched | **2.1x** (3.3x controlled overlap) |
+| **Terminal 呼叫延遲 (中位數)** | 45.57 ms | 7.96 ms | **5.72x (降低 82.5% 開銷)** |
+| **底層 Raw Bash 執行** | 3.08 ms | 1.07 ms | **2.88x 提速** |
+| **批次多目標搜尋 (`search_files` 4 目標)** | 230.50 ms | 28.92 ms | **7.97x (節省 87.5% 耗時)** |
+| **行程管理與清理** | 頂層 PID 終止（易殘留孤兒） | POSIX Process Group 連鎖回收 | **100% 杜絕背景孤兒行程** |
 
-These are *tool-operation wall times*, not model-inclusive turn speed — the honest framing: tool-heavy turns get dramatically faster, chat-heavy turns barely move. Full samples, p95s, methodology, and one **disclosed regression** (trivial native reads don't benefit from threading) in [`v2/README.md`](v2/README.md).
+### 2. Windows 實測數據（原作者基準）
 
-## Architecture
+| 執行面向 | 改造前 | 改造後 | 提速幅度 |
+|---|---:|---:|---:|
+| **原生檔案讀取** | 255.23 ms | 4.44 ms | **57.5x** |
+| **常駐暖 Shell** (Persistent Bash) | 285 ms | 12.1 ms | **23.6x** |
+| **搜尋傳輸** (直連 `rg`) | 183–455 ms | 27–97 ms | **4.7–6.8x** |
+| **批次並行 RPC** | 108 ms (循序) | 53 ms (批次) | **2.1x** (重疊度 3.3x) |
+
+*以上皆為「工具實際執行耗時（Wall Time）」，並非包含模型思考的完整回合時間。這反映最真實的情況：在密集調用工具的回合能感受到極大提速，純對話回合則維持原狀。完整數據、p95 分布與測試方法請參閱 [`v2/README.md`](v2/README.md)。*
+
+---
+
+## 系統架構
 
 <p align="center">
-  <img src="docs/assets/architecture.svg" alt="Five lanes: native read, direct rg transport, warm terminal, batched parallel RPC, update survival" width="100%"/>
+  <img src="docs/assets/architecture.svg" alt="五大核心面向：原生讀取、直連 rg、常駐暖 Shell、批次並行 RPC、更新存活" width="100%"/>
 </p>
 
-1. **One search engine, accelerated transport.** No second, less-correct reimplementation. Direct `rg.exe` execution preserves real ignore files, regex grammar, context flags, and configuration; native Windows reads reuse the upstream bounded reader, access guards, binary/document routing, and output assembler.
-2. **Correctness before speed.** Fixed JSON-breaking trailing text in search results; pagination now has stable content order and a more-results sentinel; regex backslashes and leading hyphens stay literal; CRLF and unterminated final lines handled consistently.
-3. **Real programmatic parallelism.** `from hermes_tools import parallel` — a batch of 1–16 read operations runs on up to 4 workers through one RPC, returns input order, and keeps authentication, tool allowlists, call budgets, and cell retirement fully enforced. Whole invalid batches are rejected before dispatch. No writes, no terminal.
-4. **Correct warm-shell transport.** One persistent bash, streaming through an OS pipe with bounded parser memory, a filtered **atomic** snapshot commit, preserved exit status/cwd/exports, and command-tree kill on cancellation. Never retries a submitted command.
-5. **Hardened scheduler admission.** Fail-closed classifier refuses hidden writes (`wget`, `curl -o`, `sed w`, branch creation, env-wrapped scripts, shared cwd mutations). Admission is not approval: anything refused still runs — just sequentially, the regular way.
-6. **Update survival.** Hash-verified helper sources and 25 function-scoped compatibility patches live outside the upstream checkout; after a harness update the plugin restores them in memory, preserving imported references. Unknown upstream drift degrades loudly instead of overwriting new code.
-7. **Diagnostics and rollback.** `doctor.py --smoke`, per-lane kill-switches (`TOOLRUSH_*=0`), a master `toolrush.enabled: false`, source preimages, payload hashes, and a documented runbook.
+1. **單一搜尋核心，極速傳輸**：不以粗糙邏輯重寫搜尋。直連 `rg` 二進制檔，完整保留 `.gitignore` 規則、正則語法、Context 旗標與設定檔；原生檔案讀取完全復用 upstream 的邊界限制、安全守衛、二進制/文件路由與輸出組合器。
+2. **正確性先於速度**：修復搜尋結果結尾損壞 JSON 的問題；分頁具備穩定排序與「更多結果」標記；正則反斜線與前置連字號維持字面量解析；統一處理換行（CRLF）與末行無換行的情況。
+3. **真正的程式化並行**：在 `execute_code` 中提供 `from hermes_tools import parallel`。單次 RPC 可並行分發 1–16 個唯讀操作至最多 4 個工作執行緒，嚴格維持輸入順序，並完整保持鑑權、白名單與呼叫配額限制。寫入與終端指令一律拒絕並行。
+4. **健全的串流常駐暖 Shell（Warm-Shell）**：維護單一持久化 bash，透過 OS pipe 串流傳輸，具備有限記憶體解析、原子快照提交、精確保留 Exit Code/CWD/環境變數。在 macOS/POSIX 上透過 `os.setsid` 與 `os.killpg` 徹底殺死取消的指令樹；在 Windows 上維持專屬行程管理。
+5. **強化調度准入防禦**：靜態檢查拒絕隱式寫入（`wget`、`curl -o`、`sed w`、分支建立、環境包裝腳本、共用 CWD 異動）。准入不等於授權：被拒絕加速的操作依然會以安全標準循序流程執行。
+6. **更新存活機制**：外掛於記憶體中動態掛載相容 patch，不修改 upstream 源碼。遇到未知變動時主動降級發出警告，絕不覆蓋新版官方程式碼。
+7. **完整診斷與回滾機制**：提供 `doctor.py --smoke`、各面向獨立開關（`TOOLRUSH_*=0`）、主開關 `toolrush.enabled: false`，以及完整可重現的基準測試腳本。
 
-## Verification
+---
+
+## macOS 一鍵安裝方式
+
+開啟終端機貼上以下指令，即可從本 Fork 自動下載並啟用：
+
+```bash
+mkdir -p ~/.hermes/plugins && git clone -b feat/macos-support --depth=1 https://github.com/lunkerchen/toolrush.git /tmp/tr-install && cp -r /tmp/tr-install/v2/plugin ~/.hermes/plugins/toolrush && rm -rf /tmp/tr-install && hermes plugins enable toolrush
+```
+
+安裝完成後於下次啟動 Hermes Agent 時即刻生效。
+
+---
+
+## 驗收與證據
 
 <p align="center">
   <img src="https://img.shields.io/badge/regression-206%20passed%20%C2%B7%200%20failed%20%C2%B7%200%20skipped-4ade80?style=for-the-badge&logo=pytest&logoColor=white" alt="206 passed"/>
@@ -50,44 +77,35 @@ These are *tool-operation wall times*, not model-inclusive turn speed — the ho
   <img src="https://img.shields.io/badge/live%20activation-verified%20in%20running%20kernel-38bdf8?style=for-the-badge" alt="live activation verified"/>
 </p>
 
-- **206 unique regression cases passed**, zero failed, zero skipped (deduplicated across three suites).
-- **Five negative controls** each fail for the intended reason when the fix is reverted — native read off, native search off, parallel workers serialized, unsafe admission restored, snapshot commit removed. A test that can't fail proves nothing.
-- **Failure SETS, not counts**, compared against a 441-collected baseline sweep: identical failing IDs before and after.
-- **Live end-to-end activation**: gateway and desktop restarted clean; `parallel` RPC exercised inside the real running `execute_code` kernel; config and provider files verified byte-identical (SHA-256) across the restart.
-- Contract verdicts, evidence XMLs, raw benchmark samples, reviewer reports: [`v2/evidence/`](v2/evidence/).
-
-## Repo layout
-
-| Path | What |
-|---|---|
-| [`v2/`](v2/README.md) | **The shipped implementation** — full report, intent recovery, design, MANIFEST (sha256), plugin, installed-source snapshot, evidence |
-| [`toolrush.py`](toolrush.py) | v1 lab runtime (fast_read / batch_read, persistent pool, session cache) |
-| [`toolrush_search.py`](toolrush_search.py) · [`toolrush_exec.py`](toolrush_exec.py) | wave-3 in-process search · wave-2 persistent-shell executor |
-| `bench_*.py`, `dissect_*.py` | the profiling and benchmarking that named the tax |
-| `validation-contract*.md` | VAL- contracts, one per wave (contract-first) |
-| `results.md`, `*.json` | measured evidence — no invented numbers anywhere |
-
-## The origin story: lab waves
-
-Before v2 shipped into the live tree, the tax was found and killed one wave at a time in this repo. Kept for the receipts:
-
-| Wave | Target | Result |
-|---|---|---|
-| **1** | `read_file` dispatch | 1460 ms → 1.18 ms (**1237x**) — root cause: up to 5 shell commands per read (`stat` + `head\|base64` + `sed\|cut` + `wc -l` + `tail`); the bytes cost 0.25 ms, the wrapping cost 1460 ms |
-| **2** | terminal spawn tax | `echo` 285 ms → 12.1 ms (**23.6x**) via one persistent bash; win decomposed by negative control into ~8x wrap-trim + ~3x shell persistence |
-| **3** | content search | 900 ms → 42 ms (**21.3x**) in-process walk + memoized real-guard verdicts; match sets identical 40/40 |
-| **4** | dispatch pipeline | measured, then **STOP** — registry 0.005 ms, full path 4.44 ms; the remaining "tax" is load-bearing safety rails. No theater. |
-
-Wave 4's verdict is the project's favorite line: *know when to stop.* v2 then rebuilt the lab wins as production code — one engine, correct semantics, hardened admission, update survival — because a 21x search that drops `.gitignore` semantics is a bug with a speedup.
-
-## Laws
-
-- Contract before code. Negative control or it didn't happen.
-- Live harness trees are never touched from the lab — prototype wins first, then ports behind a kill-switch.
-- Byte-identical output vs the stock path, or the lane doesn't ship.
-- Fail-closed everywhere: refused acceleration still executes, just the safe sequential way.
-- Measured evidence in-repo; no invented numbers, ever.
+- **通過 206 個回歸測試案例**，0 失敗、0 跳過。
+- **5 組對照反向測試（Negative Controls）**：當加速修復被還原時皆如預期觸發失敗，杜絕虛假通過。
+- **實機端到端驗證**：已於實際運行的 `execute_code` 核心中成功驗證 `parallel` RPC，重啟後設定與憑證經 SHA-256 驗證位元組完全一致。
+- 完整合約判決、XML 證據與原始基準測試數據見 [`v2/evidence/`](v2/evidence/)。
 
 ---
 
-Built for [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research · shipped and running live since 2026-09-05.
+## 專案結構
+
+| 路徑 | 內容說明 |
+|---|---|
+| [`v2/`](v2/README.md) | **正式交付實作** — 完整報告、設計文件、MANIFEST (sha256)、外掛本體、安裝源碼快照、測試證據 |
+| [`toolrush.py`](toolrush.py) | v1 實驗性運行時（fast_read / batch_read、持久連線池、session 快取） |
+| [`toolrush_search.py`](toolrush_search.py) · [`toolrush_exec.py`](toolrush_exec.py) | wave-3 行程內搜尋 · wave-2 常駐 shell 執行器 |
+| `bench_*.py`, `dissect_*.py` | 用於分析與命名「工具呼叫稅」的 Profile 與 Benchmark 腳本 |
+| `validation-contract*.md` | 每一階段的驗證合約文件（Contract-first） |
+| `results.md`, `*.json` | 實測證據數據 — 絕無任何虛構數字 |
+
+---
+
+## 核心守則
+
+- **先立合約再寫程式**：無對照測試即視為未完成。
+- **實驗室絕不直改正式環境程式碼**：先於原型驗證，再透過開關與外掛安全整合。
+- **與官方標準路徑維持位元組級結果一致**：輸出格式不符即不予發布。
+- **全線安全預設（Fail-Closed）**：被拒絕加速的操作退回安全循序路徑，絕不報錯中斷。
+- **所有證據留存於儲存庫中**：堅持百分之百實測數據。
+
+---
+
+為 Nous Research 打造之 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 所設計。
+macOS / POSIX 支援分支由 [Laban Chen](https://github.com/lunkerchen) 移植並維護（[PR #1](https://github.com/OnlyTerp/toolrush/pull/1)）。
