@@ -4,17 +4,21 @@
     11
   ],
   "helpers": {
+    "tools.toolrush_process": {
+      "file": "lib/tools/toolrush_process.py",
+      "sha256": "e1ac5927c01fae08047a72149c68f38091c1f5c7cc2866db2de2db953aeaf1d1"
+    },
     "tools.toolrush_runtime": {
       "file": "lib/tools/toolrush_runtime.py",
       "sha256": "ccd320b6905bea7afecf60ac3e9cdc5a846801c06c3fb8ca2c80fac2b0ceebbc"
     },
     "tools.toolrush_rg": {
       "file": "lib/tools/toolrush_rg.py",
-      "sha256": "c013efa520d014e13421244f05e34e7b359fc2c33ce6a23ca7d3be41966df9da"
+      "sha256": "783ef107abe9614c15e432987efc9891b11b83afed09ee3b8c04f12260d7cce2"
     },
     "tools.toolrush_shell": {
       "file": "lib/tools/toolrush_shell.py",
-      "sha256": "b10738643526732eb9d86c891b0af9ea7351d0e4aa7acc91f571ce7606614e16"
+      "sha256": "887ff93600aeed8bde7415f34737aacdc9b4e01f10ae33765b900b5c7e5bf080"
     },
     "tools.toolrush_rpc": {
       "file": "lib/tools/toolrush_rpc.py",
@@ -22,7 +26,7 @@
     },
     "agent.toolrush_admission": {
       "file": "lib/agent/toolrush_admission.py",
-      "sha256": "2af3835e8d297803d20d618a04cd0b6c925012aeb83ea2908008535db29a74cc"
+      "sha256": "aa6f829264ae95b85a0ac87306794fc37dfcda185904ac2b89c798b01cbaccd7"
     }
   },
   "lanes": {
