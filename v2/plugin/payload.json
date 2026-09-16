@@ -22,7 +22,7 @@
     },
     "agent.toolrush_admission": {
       "file": "lib/agent/toolrush_admission.py",
-      "sha256": "b1dbddba7d89340131a3c7248a5d6d3c55d96822022f16cbf898bef9353bce8c"
+      "sha256": "2af3835e8d297803d20d618a04cd0b6c925012aeb83ea2908008535db29a74cc"
     }
   },
   "lanes": {

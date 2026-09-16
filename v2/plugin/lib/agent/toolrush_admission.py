@@ -7,14 +7,15 @@ import re
 import shlex
 
 _SIMPLE = frozenset({
-    'cat','grep','ls','dir','head','tail','wc','stat','file','pwd','echo',
+    'cat','grep','head','tail','wc','stat','file','pwd','echo',
     'which','type','whereis','whoami','uname','printenv','id','groups',
     'df','du','free','uptime','ps','tasklist','nproc','lscpu','diff','cmp',
     'md5sum','sha1sum','sha256sum','sha512sum','cksum','cut','column','nl',
     'rev','strings','tr','readlink','realpath','basename','dirname','seq',
     'tac','od','expr','test','true','false',
 })
-_GIT_READ = frozenset({'status','log','diff','show','rev-parse','ls-files',
+# Note: 'status' can mutate or lock index.lock; excluded from parallel admission.
+_GIT_READ = frozenset({'log','diff','show','rev-parse','ls-files',
                        'ls-tree','blame','cat-file','shortlog','describe'})
 
 
@@ -29,9 +30,11 @@ def _stage(stage: str) -> bool:
     # Assignments / env wrappers can change later shared shell state or hide a
     # command. Even assignment-only invocations must be barriers.
     if first not in _SIMPLE and first not in {
-        'git','rg','sed','curl','python','python3','py','node','npm','pip','pip3','uv',
+        'git','rg','sed','python','python3','py','node','npm','pip','pip3','uv',
         'date','hostname','printf','sort','uniq','jq',
     }:
+        # Note: curl is intentionally NOT admitted to parallel execution to prevent
+        # side effects from ~/.curlrc, redirects, credentials, or remote endpoints.
         return False
     if first in {'python','python3','py','node','npm','pip','pip3','uv'}:
         return len(args) == 1 and args[0] in {'--version','-V','--help'}
@@ -59,7 +62,8 @@ def _stage(stage: str) -> bool:
         # behavior. Ordinary filters have no write primitive.
         return not any(a.startswith(('--run-tests','-L','--library-path')) for a in args)
     if first == 'rg':
-        return not any(a.startswith(('--pre','--hostname-bin')) for a in args)
+        # Disallow --pre external preprocessor, --hostname-bin, and archive decompression (-z/--search-zip)
+        return not any(a.startswith(('--pre','--hostname-bin','-z','--search-zip')) for a in args)
     if first == 'git':
         if any('$' in a or '`' in a for a in args):
             return False
@@ -67,14 +71,15 @@ def _stage(stage: str) -> bool:
         while i < len(args) and args[i].startswith('-'):
             if args[i] in {'-C','--git-dir','--work-tree'} and i+1 < len(args):
                 i += 2
-            elif args[i] in {'--no-pager','--literal-pathspecs'}:
+            elif args[i] in {'--no-pager','--literal-pathspecs','--no-ext-diff'}:
                 i += 1
             else:
                 return False
         if i >= len(args):
             return False
         sub, rest = args[i], args[i+1:]
-        if any(a.startswith(('--output','--ext-diff','--textconv','--exec')) for a in rest):
+        # Disallow external diff programs, textconv filters, external exec, and file outputs
+        if any(a.startswith(('--output','--ext-diff','--textconv','--no-textconv=false','--exec')) for a in rest):
             return False
         if sub in _GIT_READ:
             return True
@@ -85,28 +90,6 @@ def _stage(stage: str) -> bool:
         if sub == 'config':
             return bool(rest) and rest[0] in {'--get','--get-all','--get-regexp','--list','-l'}
         return False
-    if first == 'curl':
-        # Explicit bounded read-only HTTP syntax. No default-writing wget,
-        # curl config, output files, trace files, upload or arbitrary method.
-        takes_value = {'-m','--max-time','--connect-timeout','-H','--header'}
-        no_value = {'--silent','--show-error','--fail','--head','--location','--compressed','--disable'}
-        i = 0
-        while i < len(args):
-            a = args[i]
-            if '$' in a or '`' in a:
-                return False
-            if a in takes_value:
-                i += 2
-                if i > len(args):
-                    return False
-                continue
-            if a in no_value or re.fullmatch(r'-[qsfSILk]+', a):
-                i += 1
-                continue
-            if not a.startswith(('http://','https://')):
-                return False
-            i += 1
-        return bool(args)
     return True
 
 
