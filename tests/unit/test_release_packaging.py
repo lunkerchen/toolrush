@@ -1,49 +1,61 @@
-"""Test deterministic packaging and version gate verification."""
-import importlib.util
+"""Release packaging contract: single version truth, deterministic zip, valid artifacts."""
 import hashlib
-import os
+import json
+import subprocess
+import sys
 from pathlib import Path
-import tempfile
-import zipfile
-import pytest
 
-vs_path = Path(__file__).resolve().parents[2] / 'v2' / 'plugin' / 'version.py'
-spec = importlib.util.spec_from_file_location('toolrush_ver', vs_path)
-ver_mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(ver_mod)
-VERSION = ver_mod.VERSION
+REPO_ROOT = Path(__file__).resolve().parents[2]
+PLUGIN_DIR = REPO_ROOT / "v2" / "plugin"
+SCRIPT = REPO_ROOT / "scripts" / "package_release.py"
 
-def test_single_version_truth_matches_plugin_yaml():
-    yaml_path = Path(__file__).resolve().parents[2] / 'v2' / 'plugin' / 'plugin.yaml'
-    lines = yaml_path.read_text().splitlines()
-    version_line = next((l for l in lines if l.startswith('version:')), None)
+
+def test_single_version_truth_matches_plugin_yaml(package_release):
+    version = package_release.source_version(PLUGIN_DIR)
+    lines = (PLUGIN_DIR / "plugin.yaml").read_text().splitlines()
+    version_line = next((l for l in lines if l.startswith("version:")), None)
     assert version_line is not None
-    extracted = version_line.split(':', 1)[1].strip()
-    assert extracted == VERSION, f"plugin.yaml version {extracted} != version.py {VERSION}"
+    extracted = version_line.split(":", 1)[1].strip()
+    assert extracted == version, f"plugin.yaml version {extracted} != version.py {version}"
 
-def test_deterministic_packaging_hash_reproducibility():
-    fixed_time = (2026, 1, 1, 0, 0, 0)
-    plugin_dir = Path(__file__).resolve().parents[2] / 'v2' / 'plugin'
 
-    def create_zip(out_path):
-        with zipfile.ZipFile(out_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
-            for root, dirs, files in os.walk(plugin_dir):
-                dirs.sort()
-                for file in sorted(files):
-                    if file.endswith('.pyc') or '__pycache__' in root:
-                        continue
-                    full_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(full_path, plugin_dir)
-                    zinfo = zipfile.ZipInfo(rel_path, date_time=fixed_time)
-                    zinfo.external_attr = 0o644 << 16
-                    with open(full_path, 'rb') as f:
-                        zf.writestr(zinfo, f.read())
+def test_build_zip_is_deterministic(package_release, tmp_path):
+    """Two builds over identical sources must be byte-identical."""
+    h1 = package_release.build_zip(PLUGIN_DIR, tmp_path / "pack1.zip")
+    h2 = package_release.build_zip(PLUGIN_DIR, tmp_path / "pack2.zip")
+    assert h1 == h2, "packaging is non-deterministic"
+    assert h1 == hashlib.sha256((tmp_path / "pack1.zip").read_bytes()).hexdigest()
 
-    with tempfile.TemporaryDirectory() as td:
-        z1 = os.path.join(td, "pack1.zip")
-        z2 = os.path.join(td, "pack2.zip")
-        create_zip(z1)
-        create_zip(z2)
-        h1 = hashlib.sha256(open(z1, 'rb').read()).hexdigest()
-        h2 = hashlib.sha256(open(z2, 'rb').read()).hexdigest()
-        assert h1 == h2, "Packaging is non-deterministic"
+
+def test_package_release_emits_valid_sha256sums_and_manifest(package_release, tmp_path):
+    version = package_release.source_version(PLUGIN_DIR)
+    out = tmp_path / "dist"
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--version", version, "--output-dir", str(out)],
+        cwd=REPO_ROOT, capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+
+    artifact = f"toolrush-{version}.zip"
+    zip_path = out / artifact
+    digest = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+
+    sums = (out / "SHA256SUMS").read_text()
+    assert sums == f"{digest}  {artifact}\n"
+
+    manifest = json.loads((out / "MANIFEST.json").read_text())
+    assert manifest == {
+        "version": version,
+        "tag": f"v{version}",
+        "artifact": artifact,
+        "sha256": digest,
+    }
+
+
+def test_version_gate_rejects_mismatched_tag(package_release, tmp_path):
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--version", "99.99.99", "--output-dir", str(tmp_path)],
+        cwd=REPO_ROOT, capture_output=True, text=True,
+    )
+    assert proc.returncode != 0
+    assert "version mismatch" in proc.stderr

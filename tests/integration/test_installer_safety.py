@@ -100,5 +100,69 @@ class TestInstallerSafety:
             res = subprocess.run([str(INSTALL_SH)], env=env, capture_output=True, text=True)
             assert res.returncode != 0
 
-        # Verify canary was restored by rollback or preserved
-        assert canary.exists() or any("toolrush_backup" in str(p) for p in fake_env['plugins'].glob('.toolrush_backup_*'))
+        # Verify canary was restored by rollback
+        assert canary.exists()
+
+    def test_release_archive_installation(self, fake_env, package_release):
+        # Build genuine release artifact using package_release
+        with tempfile.TemporaryDirectory() as dist_dir:
+            import importlib.util
+            vs_path = REPO_ROOT / 'v2' / 'plugin' / 'version.py'
+            spec = importlib.util.spec_from_file_location('v', vs_path)
+            vm = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(vm)
+            ver = vm.VERSION
+
+            zip_path = Path(dist_dir) / f"toolrush-{ver}.zip"
+            sha256 = package_release.build_zip(REPO_ROOT / 'v2' / 'plugin', zip_path)
+
+            env = os.environ.copy()
+            env['HERMES_HOME'] = str(fake_env['hermes'])
+            env['TOOLRUSH_RELEASE_ARCHIVE'] = str(zip_path)
+            env['TOOLRUSH_EXPECTED_SHA256'] = sha256
+
+            res = subprocess.run([str(INSTALL_SH)], env=env, capture_output=True, text=True)
+            assert res.returncode == 0, f"Installer with archive failed: {res.stderr}"
+            target = fake_env['plugins'] / 'toolrush'
+            assert target.is_dir()
+            assert (target / 'plugin.yaml').is_file()
+
+    def test_archive_path_traversal_rejected(self, fake_env):
+        import zipfile
+        with tempfile.TemporaryDirectory() as td:
+            bad_zip = Path(td) / "evil.zip"
+            with zipfile.ZipFile(bad_zip, 'w') as zf:
+                zf.writestr('../evil.txt', 'evil content')
+
+            env = os.environ.copy()
+            env['HERMES_HOME'] = str(fake_env['hermes'])
+            env['TOOLRUSH_RELEASE_ARCHIVE'] = str(bad_zip)
+
+            res = subprocess.run([str(INSTALL_SH)], env=env, capture_output=True, text=True)
+            assert res.returncode != 0
+            assert "unsafe archive member" in res.stderr
+
+    def test_signal_interruption_restores_backup(self, fake_env):
+        target = fake_env['plugins'] / 'toolrush'
+        target.mkdir()
+        canary = target / 'canary.txt'
+        canary.write_text("existing-version-canary")
+
+        # Hook python3 so that when doctor --smoke runs during post-install, it raises SIGTERM to parent
+        with tempfile.TemporaryDirectory() as bin_dir:
+            fake_py = Path(bin_dir) / 'python3'
+            fake_py.write_text('#!/bin/sh\nif echo "$*" | grep -q -- "--smoke"; then kill -TERM "$PPID"; sleep 2; exit 1; fi\nexec /opt/anaconda3/bin/python3 "$@"\n')
+            fake_py.chmod(0o755)
+
+            env = os.environ.copy()
+            env['HERMES_HOME'] = str(fake_env['hermes'])
+            env['TOOLRUSH_REPO'] = str(REPO_ROOT)
+            env['TOOLRUSH_ALLOW_UNPINNED'] = '1'
+            env['TOOLRUSH_VERSION'] = 'HEAD'
+            env['PATH'] = f"{bin_dir}:{env['PATH']}"
+
+            res = subprocess.run([str(INSTALL_SH)], env=env, capture_output=True, text=True)
+            assert res.returncode != 0
+
+        # Verify previous installation was safely restored
+        assert canary.exists(), "Canary not restored after SIGTERM interruption!"

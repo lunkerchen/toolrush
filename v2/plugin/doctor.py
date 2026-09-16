@@ -24,7 +24,7 @@ is_win = sys.platform == 'win32'
 platform_name = 'windows' if is_win else ('darwin' if sys.platform == 'darwin' else 'linux')
 
 # Discover executables
-bash_path = shutil.which('bash') or ('bash' if not is_win else None)
+bash_path = shutil.which('bash')
 rg_path = shutil.which('rg')
 rg_ver = None
 if rg_path:
@@ -128,14 +128,27 @@ try:
             'reason': None if rg_path else 'rg executable not found'
         }
         result['lanes']['parallel_rpc'] = {
-            'status': 'ready',
-            'provider': 'upstream_sequential_or_worker',
+            'status': 'unverified_upstream' if not hermes_root else 'ready',
+            'provider': 'upstream',
+            'reason': None if hermes_root else 'hermes_root not present'
         }
-        lanes_ok = result['lanes']['warm_shell']['status'] == 'ready'
+        lanes_ok = bool(bash_path and warm_status == 'ready')
 
     if args.smoke:
         # Cross-platform smoke test: verify plugin load & fresh subprocess lanes without model/user writes
         boot_status = {'status': 'unverified', 'version': VERSION}
+
+        # Genuine isolated warm-shell execution: clean env, isolated cwd
+        smoke_cmd_ok = False
+        if bash_path:
+            try:
+                import tempfile
+                with tempfile.TemporaryDirectory() as td:
+                    res = subprocess.run([bash_path, '-c', 'echo toolrush-smoke-ok'], capture_output=True, text=True, timeout=5, cwd=td, env={'PATH': os.environ.get('PATH', '')})
+                    smoke_cmd_ok = (res.returncode == 0 and 'toolrush-smoke-ok' in res.stdout)
+            except Exception:
+                smoke_cmd_ok = False
+
         if hermes_root:
             try:
                 from hermes_cli.plugins import PluginManager, PluginManifest
@@ -153,14 +166,16 @@ try:
                 if spec is not None and spec.loader is not None:
                     mod = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(mod)
-                    boot_status = {'status': 'clean_environment_rejection_or_direct', 'version': VERSION, 'hermes_installed': False}
+                    boot_status = {'status': 'clean_environment_direct_load', 'version': VERSION, 'hermes_installed': False}
                 else:
                     boot_status = {'status': 'degraded', 'version': VERSION, 'reason': 'Failed to resolve module spec'}
             except Exception as exc:
                 boot_status = {'status': 'degraded', 'version': VERSION, 'reason': str(exc)}
         result['boot'] = boot_status
-
-    result['ok'] = lanes_ok
+        result['smoke_execution'] = {'warm_shell': 'passed' if smoke_cmd_ok else 'failed'}
+        result['ok'] = bool(lanes_ok and boot_status.get('status') in ('ready', 'clean_environment_direct_load') and smoke_cmd_ok)
+    else:
+        result['ok'] = bool(lanes_ok)
 except Exception as exc:
     result['ok'] = False
     result['error'] = str(exc)

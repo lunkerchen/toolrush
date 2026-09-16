@@ -42,28 +42,11 @@ jobs:
     - name: Package Deterministic Release Artifact
       run: |
         VERSION="${GITHUB_REF_NAME#v}"
-        mkdir -p dist
-        python3 -c "
-        import os, zipfile, time
-        # Deterministic zip creation: normalized timestamps and sorted file list
-        zip_path = f'dist/toolrush-{VERSION}.zip'
-        fixed_time = (2026, 1, 1, 0, 0, 0)
-        with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
-            for root, dirs, files in os.walk('v2/plugin'):
-                dirs.sort()
-                for file in sorted(files):
-                    if file.endswith('.pyc') or '__pycache__' in root:
-                        continue
-                    full_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(full_path, 'v2/plugin')
-                    zinfo = zipfile.ZipInfo(rel_path, date_time=fixed_time)
-                    zinfo.external_attr = 0o644 << 16
-                    with open(full_path, 'rb') as f:
-                        zf.writestr(zinfo, f.read())
-        "
-        cd dist
-        sha256sum "toolrush-${VERSION}.zip" > SHA256SUMS
-        echo "{\"version\": \"${VERSION}\", \"tag\": \"${GITHUB_REF_NAME}\", \"artifact\": \"toolrush-${VERSION}.zip\"}" > MANIFEST.json
+        python3 scripts/package_release.py --version "$VERSION" --output-dir dist
+
+    - name: Verify Artifact Checksum
+      working-directory: dist
+      run: sha256sum -c SHA256SUMS
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
