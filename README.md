@@ -4,9 +4,9 @@
 
 <p align="center">
   <a href="#the-problem"><img src="https://img.shields.io/badge/status-已上線運作-22c55e?style=flat-square" alt="shipped and live"/></a>
-  <a href="v2/README.md"><img src="https://img.shields.io/badge/version-2.1%20(macOS)-f97316?style=flat-square" alt="v2.1 macOS"/></a>
-  <a href="v2/evidence/"><img src="https://img.shields.io/badge/tests-206%20passed%20(upstream)-4ade80?style=flat-square" alt="206 tests passed (upstream)"/></a>
-  <img src="https://img.shields.io/badge/platform-macOS%20%2F%20Windows-38bdf8?style=flat-square" alt="macOS / Windows"/>
+  <a href="v2/README.md"><img src="https://img.shields.io/badge/version-2.1.0-f97316?style=flat-square" alt="v2.1.0"/></a>
+  <a href="docs/compatibility.md"><img src="https://img.shields.io/badge/platform-macOS%20%2F%20Linux%20%2F%20Windows-38bdf8?style=flat-square" alt="macOS / Linux / Windows"/></a>
+  <a href="tests/"><img src="https://img.shields.io/badge/tests-canonical%20suite%20passing-4ade80?style=flat-square" alt="Tests Passing"/></a>
 </p>
 
 現代 AI Agent 模型串流輸出 Token 的速度，往往比宿主環境讀取一個檔案還要快。效能瓶頸早已不再是每秒生成多少 Token（TPS），而是**工具呼叫稅（Tool-Call Tax）**：每一次呼叫 `read_file`、`search_files` 與 `terminal`，背後都在為原本只要幾微秒的操作承受反覆開關行程（Process Spawn）、Shell 往返跳轉、包裝層序列化與重複分發的沈重負擔。
@@ -57,15 +57,38 @@
 
 ---
 
-## macOS 一鍵安裝方式
+## 一鍵安裝方式（推薦使用正式 Idempotent Installer）
 
-開啟終端機貼上以下指令，即可從本 Fork 自動下載並啟用：
-
+### macOS / Linux
 ```bash
-mkdir -p ~/.hermes/plugins && git clone --depth=1 https://github.com/lunkerchen/toolrush.git /tmp/tr-install && cp -r /tmp/tr-install/v2/plugin ~/.hermes/plugins/toolrush && rm -rf /tmp/tr-install && hermes plugins enable toolrush
+curl -sSL https://raw.githubusercontent.com/lunkerchen/toolrush/main/scripts/install.sh | bash
+```
+或直接 clone 執行：
+```bash
+git clone --depth=1 https://github.com/lunkerchen/toolrush.git /tmp/toolrush
+bash /tmp/toolrush/scripts/install.sh
+rm -rf /tmp/toolrush
 ```
 
-安裝完成後於下次啟動 Hermes Agent 時即刻生效。
+### Windows (PowerShell)
+```powershell
+irm https://raw.githubusercontent.com/lunkerchen/toolrush/main/scripts/install.ps1 | iex
+```
+
+### 驗證安裝
+```bash
+python3 ~/.hermes/plugins/toolrush/doctor.py --smoke
+```
+
+### 停用 / 移除
+在 `~/.hermes/config.yaml` 中將 toolrush 停用或執行：
+```bash
+hermes plugins disable toolrush
+```
+若需完全移除：
+```bash
+rm -rf ~/.hermes/plugins/toolrush
+```
 
 ---
 
@@ -88,12 +111,13 @@ mkdir -p ~/.hermes/plugins && git clone --depth=1 https://github.com/lunkerchen/
 
 | 路徑 | 內容說明 |
 |---|---|
-| [`v2/`](v2/README.md) | **正式交付實作** — 完整報告、設計文件、MANIFEST (sha256)、外掛本體、安裝源碼快照、測試證據 |
-| [`toolrush.py`](toolrush.py) | v1 實驗性運行時（fast_read / batch_read、持久連線池、session 快取） |
-| [`toolrush_search.py`](toolrush_search.py) · [`toolrush_exec.py`](toolrush_exec.py) | wave-3 行程內搜尋 · wave-2 常駐 shell 執行器 |
-| `bench_*.py`, `dissect_*.py` | 用於分析與命名「工具呼叫稅」的 Profile 與 Benchmark 腳本 |
-| `validation-contract*.md` | 每一階段的驗證合約文件（Contract-first） |
-| `results.md`, `*.json` | 實測證據數據 — 絕無任何虛構數字 |
+| [`v2/plugin/`](v2/plugin/) | **正式交付實作** — 完整報告、設計文件、MANIFEST (sha256)、外掛本體、安裝源碼快照、測試證據 |
+| [`scripts/`](scripts/) | 正式安裝與驗證腳本：`install.sh` (macOS/POSIX) 與 `install.ps1` (Windows) |
+| [`tests/`](tests/) | 正式回歸測試套件：單元、整合、准入硬化與相容性測試 |
+| [`docs/`](docs/) | 技術文件：`compatibility.md` 相容性矩陣與架構資產 |
+| [`benchmarks/`](benchmarks/) | 效能評測腳本 (`scripts/`) 與原始數據 (`results/`) 歸檔 |
+| [`legacy/`](legacy/) | v1 實驗性原型與歷史驗證合約文件存檔 |
+| [`v2/evidence/`](v2/evidence/) | 歷史驗證數據與 XML 存證（Historical Validation Records） |
 
 ---
 
