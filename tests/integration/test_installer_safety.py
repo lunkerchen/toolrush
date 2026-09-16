@@ -2,6 +2,7 @@
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 import pytest
@@ -94,14 +95,17 @@ class TestInstallerSafety:
         # We simulate staging failure by pointing python3 to a script that fails doctor --smoke
         with tempfile.TemporaryDirectory() as bin_dir:
             fake_py = Path(bin_dir) / 'python3'
-            fake_py.write_text('#!/bin/sh\nif [ "$1" = "-c" ]; then /opt/anaconda3/bin/python3 "$@"; else exit 1; fi\n')
+            fake_py.write_text(
+                f'#!/bin/sh\nif [ "$1" = "-c" ]; then exec {sys.executable} "$@"; else exit 1; fi\n'
+            )
             fake_py.chmod(0o755)
             env['PATH'] = f"{bin_dir}:{env['PATH']}"
             res = subprocess.run([str(INSTALL_SH)], env=env, capture_output=True, text=True)
-            assert res.returncode != 0
+            assert res.returncode != 0, f"Installer unexpectedly succeeded: {res.stdout}"
 
         # Verify canary was restored by rollback
-        assert canary.exists()
+        assert canary.exists(), "Canary not restored after verification failure!"
+        assert canary.read_text() == "existing-version-canary"
 
     def test_release_archive_installation(self, fake_env, package_release):
         # Build genuine release artifact using package_release
@@ -128,6 +132,7 @@ class TestInstallerSafety:
             assert (target / 'plugin.yaml').is_file()
 
     def test_archive_path_traversal_rejected(self, fake_env):
+        import hashlib
         import zipfile
         with tempfile.TemporaryDirectory() as td:
             bad_zip = Path(td) / "evil.zip"
@@ -137,6 +142,8 @@ class TestInstallerSafety:
             env = os.environ.copy()
             env['HERMES_HOME'] = str(fake_env['hermes'])
             env['TOOLRUSH_RELEASE_ARCHIVE'] = str(bad_zip)
+            # Checksum must pass so the failure is traversal rejection, not the checksum gate
+            env['TOOLRUSH_EXPECTED_SHA256'] = hashlib.sha256(bad_zip.read_bytes()).hexdigest()
 
             res = subprocess.run([str(INSTALL_SH)], env=env, capture_output=True, text=True)
             assert res.returncode != 0
@@ -151,7 +158,9 @@ class TestInstallerSafety:
         # Hook python3 so that when doctor --smoke runs during post-install, it raises SIGTERM to parent
         with tempfile.TemporaryDirectory() as bin_dir:
             fake_py = Path(bin_dir) / 'python3'
-            fake_py.write_text('#!/bin/sh\nif echo "$*" | grep -q -- "--smoke"; then kill -TERM "$PPID"; sleep 2; exit 1; fi\nexec /opt/anaconda3/bin/python3 "$@"\n')
+            fake_py.write_text(
+                f'#!/bin/sh\nif echo "$*" | grep -q -- "--smoke"; then kill -TERM "$PPID"; sleep 2; exit 1; fi\nexec {sys.executable} "$@"\n'
+            )
             fake_py.chmod(0o755)
 
             env = os.environ.copy()
@@ -166,3 +175,4 @@ class TestInstallerSafety:
 
         # Verify previous installation was safely restored
         assert canary.exists(), "Canary not restored after SIGTERM interruption!"
+        assert canary.read_text() == "existing-version-canary"

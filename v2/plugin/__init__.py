@@ -118,10 +118,17 @@ def register(ctx=None):
                 module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                 payload=json.loads((Path(__file__).with_name('payload.json')).read_text(encoding='utf-8'))
                 module.load_helpers(payload)
+                import shutil
+                bash=shutil.which('bash')
+                if not bash:
+                    finder=getattr(local,'_find_bash',None)
+                    if callable(finder):
+                        try:bash=finder()
+                        except Exception:bash=None
                 _COMPAT_STATUS={
-                    'warm_shell': {'status': 'ready', 'provider': 'toolrush'},
+                    'warm_shell': {'status':'ready','provider':'toolrush'} if bash else {'status':'degraded','provider':'toolrush','reason':'bash not found'},
                     'native_read': {'status': 'ready', 'provider': 'upstream'},
-                    'native_search': {'status': 'ready', 'provider': 'upstream'},
+                    'native_search': {'status':'ready','provider':'upstream'} if shutil.which('rg') else {'status':'degraded','provider':'upstream','reason':'rg not found'},
                     'parallel_rpc': {'status': 'ready', 'provider': 'upstream_sequential_or_worker'}
                 }
             except Exception as exc:

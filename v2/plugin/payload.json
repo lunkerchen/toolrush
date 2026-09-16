@@ -6,7 +6,7 @@
   "helpers": {
     "tools.toolrush_process": {
       "file": "lib/tools/toolrush_process.py",
-      "sha256": "e1ac5927c01fae08047a72149c68f38091c1f5c7cc2866db2de2db953aeaf1d1"
+      "sha256": "cbad337d538cf3fb716f2d805e3d032ef984958d4d68cae834b561ab8c2788b6"
     },
     "tools.toolrush_runtime": {
       "file": "lib/tools/toolrush_runtime.py",
@@ -14,11 +14,11 @@
     },
     "tools.toolrush_rg": {
       "file": "lib/tools/toolrush_rg.py",
-      "sha256": "783ef107abe9614c15e432987efc9891b11b83afed09ee3b8c04f12260d7cce2"
+      "sha256": "12354df6c58803127eafe9ce90f85fed998d6d8453323d89b8803ccbc1b4d9aa"
     },
     "tools.toolrush_shell": {
       "file": "lib/tools/toolrush_shell.py",
-      "sha256": "887ff93600aeed8bde7415f34737aacdc9b4e01f10ae33765b900b5c7e5bf080"
+      "sha256": "092bdc722a1aa2716e4231d2f9780819f6c74534015934d30b4bbe27b28a3a1b"
     },
     "tools.toolrush_rpc": {
       "file": "lib/tools/toolrush_rpc.py",

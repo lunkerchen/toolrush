@@ -75,6 +75,7 @@ result = {
     'platform': platform_name,
     'toolrush_version': VERSION,
     'python': sys.version.split()[0],
+    'python_executable': sys.executable,
     'hermes_root': hermes_root,
     'hermes_version': hermes_ver,
     'executables': {
@@ -86,6 +87,9 @@ result = {
     'lanes': {},
     'restart_note': 'This fresh-process check does not activate already-running gateways.',
 }
+
+if not hermes_root:
+    result['hermes_status'] = 'missing'
 
 try:
     # Check plugin.yaml version consistency
@@ -99,13 +103,18 @@ try:
 
     # Unified lane schema
     if is_win:
-        for lane, rows in payload['lanes'].items():
-            try:
-                pending = len(c.prepare_rows(rows))
-                result['lanes'][lane] = {'status': 'compatible', 'provider': 'toolrush', 'pending_function_patches': pending}
-            except Exception as exc:
-                result['lanes'][lane] = {'status': 'degraded', 'provider': 'toolrush', 'reason': str(exc)}
-        lanes_ok = all(v['status'] == 'compatible' for v in result['lanes'].values())
+        if tuple(payload.get('python', [])) != sys.version_info[:2]:
+            lanes_ok = False
+            for lane in payload['lanes']:
+                result['lanes'][lane] = {'status': 'degraded', 'provider': 'toolrush', 'reason': 'python version mismatch'}
+        else:
+            for lane, rows in payload['lanes'].items():
+                try:
+                    pending = len(c.prepare_rows(rows))
+                    result['lanes'][lane] = {'status': 'compatible', 'provider': 'toolrush', 'pending_function_patches': pending}
+                except Exception as exc:
+                    result['lanes'][lane] = {'status': 'degraded', 'provider': 'toolrush', 'reason': str(exc)}
+            lanes_ok = all(v['status'] == 'compatible' for v in result['lanes'].values())
     else:
         # On macOS/POSIX:
         # - warm_shell is active & ready (provider: toolrush)
@@ -138,14 +147,23 @@ try:
         # Cross-platform smoke test: verify plugin load & fresh subprocess lanes without model/user writes
         boot_status = {'status': 'unverified', 'version': VERSION}
 
-        # Genuine isolated warm-shell execution: clean env, isolated cwd
+        # Genuine warm-shell execution through the real broker: clean env, isolated cwd
         smoke_cmd_ok = False
-        if bash_path:
+        if bash_path and hermes_root:
             try:
                 import tempfile
+                c.load_helpers(payload)  # hash-verified; registers tools.* under the real package
+                from tools.toolrush_shell import WarmHandle, WarmShell, build_frame
                 with tempfile.TemporaryDirectory() as td:
-                    res = subprocess.run([bash_path, '-c', 'echo toolrush-smoke-ok'], capture_output=True, text=True, timeout=5, cwd=td, env={'PATH': os.environ.get('PATH', '')})
-                    smoke_cmd_ok = (res.returncode == 0 and 'toolrush-smoke-ok' in res.stdout)
+                    local = type('L', (), {'_IS_WINDOWS': is_win, '_find_bash': lambda s: bash_path,
+                        '_make_run_env': lambda s, e: {'PATH': os.environ.get('PATH', '')}, '_resolve_safe_cwd': lambda s, c: td})()
+                    owner = type('O', (), {'env': {}, 'cwd': td})()
+                    shell = WarmShell(local, owner)
+                    shell.lock.acquire()  # WarmHandle releases it when the frame ends
+                    h = WarmHandle(shell, *build_frame(owner, local, 'echo toolrush-smoke-ok'))
+                    out = h.stdout.read()
+                    smoke_cmd_ok = (h.wait(10) == 0 and b'toolrush-smoke-ok' in out)
+                    shell.close()
             except Exception:
                 smoke_cmd_ok = False
 
@@ -156,6 +174,10 @@ try:
                 manager._load_plugin(PluginManifest(name='toolrush', version=VERSION, source='user', path=str(P), key='toolrush'))
                 loaded = manager._plugins.get('toolrush')
                 assert loaded and loaded.enabled and not loaded.error, f"Plugin failed to load: {getattr(loaded, 'error', None)}"
+                compat_status = (getattr(sys.modules.get('hermes_cli.plugins'), '_COMPAT_STATUS', None)
+                                 or getattr(sys.modules.get('toolrush'), '_COMPAT_STATUS', None))
+                if compat_status:
+                    result['compat_status'] = compat_status
                 boot_status = {'status': 'ready', 'version': VERSION, 'mode': 'hermes_cli'}
             except Exception as exc:
                 boot_status = {'status': 'degraded', 'version': VERSION, 'reason': f"hermes_cli plugin loader failed: {exc}"}
@@ -173,9 +195,10 @@ try:
                 boot_status = {'status': 'degraded', 'version': VERSION, 'reason': str(exc)}
         result['boot'] = boot_status
         result['smoke_execution'] = {'warm_shell': 'passed' if smoke_cmd_ok else 'failed'}
-        result['ok'] = bool(lanes_ok and boot_status.get('status') in ('ready', 'clean_environment_direct_load') and smoke_cmd_ok)
+        # Fail closed without Hermes: a direct module load is not a working install.
+        result['ok'] = bool(hermes_root and lanes_ok and boot_status.get('status') == 'ready' and smoke_cmd_ok)
     else:
-        result['ok'] = bool(lanes_ok)
+        result['ok'] = bool(hermes_root and lanes_ok)
 except Exception as exc:
     result['ok'] = False
     result['error'] = str(exc)

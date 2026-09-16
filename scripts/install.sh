@@ -8,11 +8,12 @@ TARGET_DIR="${PLUGINS_DIR}/toolrush"
 REPO_URL="${TOOLRUSH_REPO:-https://github.com/lunkerchen/toolrush.git}"
 VERSION_TAG="${TOOLRUSH_VERSION:-v2.1.0}"
 ALLOW_UNPINNED="${TOOLRUSH_ALLOW_UNPINNED:-0}"
-# Release artifact: local path or http(s) URL. Empty means "install from git".
+# Release artifact: local path, file:// or https:// URL. Empty means "install from git".
 RELEASE_ARCHIVE="${TOOLRUSH_RELEASE_ARCHIVE:-}"
 EXPECTED_SHA256="${TOOLRUSH_EXPECTED_SHA256:-}"
 # Optional explicit SHA256SUMS location (path or URL); otherwise discovered next to the archive.
 SHA256SUMS_SRC="${TOOLRUSH_SHA256SUMS:-}"
+ALLOW_INSECURE_HTTP="${TOOLRUSH_ALLOW_INSECURE_HTTP:-0}"
 
 log() {
   printf "[toolrush-install] %s\n" "$*"
@@ -21,6 +22,36 @@ log() {
 error() {
   printf "[toolrush-install] ERROR: %s\n" "$*" >&2
 }
+
+# 0. Archive scheme policy: https:// and file:// only; http:// requires explicit opt-in.
+if [ -n "$RELEASE_ARCHIVE" ]; then
+  case "$RELEASE_ARCHIVE" in
+    https://*) ;;
+    file://*)
+      # Normalize file://[localhost]/path to a plain local path.
+      RELEASE_ARCHIVE="${RELEASE_ARCHIVE#file://}"
+      RELEASE_ARCHIVE="${RELEASE_ARCHIVE#localhost}"
+      case "$RELEASE_ARCHIVE" in
+        /*) ;;
+        *)
+          error "Unsupported file:// URL (expected file:///absolute/path): $RELEASE_ARCHIVE"
+          exit 1
+          ;;
+      esac
+      ;;
+    http://*)
+      if [ "$ALLOW_INSECURE_HTTP" != "1" ]; then
+        error "Insecure http:// release archive URL is refused. Use https:// or file://, or set TOOLRUSH_ALLOW_INSECURE_HTTP=1 to override."
+        exit 1
+      fi
+      error "WARNING: installing over insecure http:// because TOOLRUSH_ALLOW_INSECURE_HTTP=1."
+      ;;
+    *://*)
+      error "Unsupported release archive URL scheme: $RELEASE_ARCHIVE (allowed: https://, file://)"
+      exit 1
+      ;;
+  esac
+fi
 
 # 1. Prerequisite checks
 REQUIRED_CMDS=(cp mktemp python3 mkdir mv rm)
@@ -207,17 +238,19 @@ if [ -n "$RELEASE_ARCHIVE" ]; then
     fi
   fi
 
-  if [ -n "$EXPECTED_SHA256" ]; then
-    if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
-      error "Release archive checksum mismatch."
-      error "  expected: $EXPECTED_SHA256"
-      error "  actual:   $ACTUAL_SHA256"
-      exit 1
-    fi
-    log "Archive checksum verified ($ACTUAL_SHA256)."
-  else
-    log "WARNING: no checksum available; installing unverified archive ($ACTUAL_SHA256)."
+  # Fail closed: an archive install without a checksum is never allowed.
+  if [ -z "$EXPECTED_SHA256" ]; then
+    error "Archive checksum is required for secure installation"
+    error "  set TOOLRUSH_EXPECTED_SHA256, or provide a SHA256SUMS file next to the archive (or via TOOLRUSH_SHA256SUMS)."
+    exit 1
   fi
+  if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+    error "Archive checksum verification failed"
+    error "  expected: $EXPECTED_SHA256"
+    error "  actual:   $ACTUAL_SHA256"
+    exit 1
+  fi
+  log "Archive checksum verified ($ACTUAL_SHA256)."
 
   log "Extracting release archive..."
   if ! extract_zip_safely "$ARCHIVE_FILE" "$STAGE_PLUGIN"; then
@@ -253,8 +286,9 @@ else
     exit 1
   fi
 
-  # Stage plugin into same-filesystem directory
-  cp -R "$SOURCE_DIR/"* "$STAGE_PLUGIN/"
+  # Stage plugin into same-filesystem directory.
+  # "$SOURCE_DIR/." copies dotfiles too; a glob would silently drop them.
+  cp -R "$SOURCE_DIR/." "$STAGE_PLUGIN/"
 fi
 
 if [ ! -f "$STAGE_PLUGIN/plugin.yaml" ] || [ ! -f "$STAGE_PLUGIN/doctor.py" ]; then

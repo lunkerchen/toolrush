@@ -60,19 +60,47 @@
 ## 一鍵安裝方式（推薦使用正式 Idempotent Installer）
 
 ### macOS / Linux
+
+先下載、檢查內容，確認無誤後再執行。**請勿**將 `curl` 直接管道給 `bash`。
+
 ```bash
-curl -sSL https://raw.githubusercontent.com/lunkerchen/toolrush/main/scripts/install.sh | bash
+# 將 TAG 換成你要安裝的釋出標籤（勿使用 main，以免安裝到未經審查的變更）
+TAG=v0.1.0
+curl -fsSL -o /tmp/toolrush-install.sh \
+  "https://raw.githubusercontent.com/lunkerchen/toolrush/${TAG}/scripts/install.sh"
+
+# 檢查校驗值與腳本內容
+shasum -a 256 /tmp/toolrush-install.sh
+less /tmp/toolrush-install.sh
+
+# 確認無誤後才執行
+bash /tmp/toolrush-install.sh
+rm -f /tmp/toolrush-install.sh
 ```
-或直接 clone 執行：
+
+或直接 clone 指定標籤後執行（同樣建議先檢視腳本）：
 ```bash
-git clone --depth=1 https://github.com/lunkerchen/toolrush.git /tmp/toolrush
+git clone --depth=1 --branch v0.1.0 https://github.com/lunkerchen/toolrush.git /tmp/toolrush
+less /tmp/toolrush/scripts/install.sh   # 先檢視
 bash /tmp/toolrush/scripts/install.sh
 rm -rf /tmp/toolrush
 ```
 
 ### Windows (PowerShell)
+
+同樣先下載並檢視，不要使用 `irm ... | iex`。
+
 ```powershell
-irm https://raw.githubusercontent.com/lunkerchen/toolrush/main/scripts/install.ps1 | iex
+$Tag = 'v0.1.0'
+Invoke-WebRequest -UseBasicParsing `
+  -Uri "https://raw.githubusercontent.com/lunkerchen/toolrush/$Tag/scripts/install.ps1" `
+  -OutFile "$env:TEMP\toolrush-install.ps1"
+
+Get-FileHash "$env:TEMP\toolrush-install.ps1" -Algorithm SHA256
+Get-Content "$env:TEMP\toolrush-install.ps1"   # 確認內容
+
+powershell -ExecutionPolicy Bypass -File "$env:TEMP\toolrush-install.ps1"
+Remove-Item "$env:TEMP\toolrush-install.ps1"
 ```
 
 ### 驗證安裝
@@ -95,12 +123,12 @@ rm -rf ~/.hermes/plugins/toolrush
 ## 驗收與證據
 
 <p align="center">
-  <img src="https://img.shields.io/badge/regression-206%20passed%20%C2%B7%200%20failed%20%C2%B7%200%20skipped-4ade80?style=for-the-badge&logo=pytest&logoColor=white" alt="206 passed"/>
+  <img src="https://img.shields.io/badge/tests-canonical%20suite%20passing-4ade80?style=for-the-badge&logo=pytest&logoColor=white" alt="Canonical tests passing"/>
   <img src="https://img.shields.io/badge/negative%20controls-5%20fail%20on%20revert-f97316?style=for-the-badge" alt="5 negative controls"/>
   <img src="https://img.shields.io/badge/live%20activation-verified%20in%20running%20kernel-38bdf8?style=for-the-badge" alt="live activation verified"/>
 </p>
 
-- **通過 206 個回歸測試案例**（Upstream 基準），0 失敗、0 跳過。
+- **通過 206 個歷史基準驗證案例**（歷史記錄存檔於 `v2/evidence/`），當前版本正式回歸測試套件（`tests/`）全數通過。
 - **5 組對照反向測試（Negative Controls）**：當加速修復被還原時皆如預期觸發失敗，杜絕虛假通過。
 - **實機端到端驗證**：已於實際運行的 `execute_code` 核心中成功驗證 `parallel` RPC，重啟後設定與憑證經 SHA-256 驗證位元組完全一致。
 - 完整合約判決、XML 證據與原始基準測試數據見 [`v2/evidence/`](v2/evidence/)。

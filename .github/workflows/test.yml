@@ -5,6 +5,10 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -42,19 +46,11 @@ jobs:
     - name: Test Local Artifact Packaging Reproducibility
       shell: bash
       run: |
-        VERSION="2.1.0"
-        mkdir -p dist_test
-        python3 -c "
-        import os, zipfile
-        p = 'dist_test/toolrush-${VERSION}.zip'
-        with zipfile.ZipFile(p, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
-            for root, dirs, files in os.walk('v2/plugin'):
-                dirs.sort()
-                for file in sorted(files):
-                    if file.endswith('.pyc') or '__pycache__' in root:
-                        continue
-                    full_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(full_path, 'v2/plugin')
-                    zf.write(full_path, rel_path)
-        "
-        test -f "dist_test/toolrush-${VERSION}.zip"
+        VERSION=$(python3 -c "import runpy; print(runpy.run_path('v2/plugin/version.py')['VERSION'])")
+        python3 scripts/package_release.py --version "$VERSION" --output-dir dist1
+        python3 scripts/package_release.py --version "$VERSION" --output-dir dist2
+        A=$(python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "dist1/toolrush-${VERSION}.zip")
+        B=$(python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "dist2/toolrush-${VERSION}.zip")
+        echo "run1=$A"
+        echo "run2=$B"
+        test "$A" = "$B"

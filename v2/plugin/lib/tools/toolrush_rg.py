@@ -15,7 +15,7 @@ import time
 
 from tools import interrupt
 from hermes_cli._subprocess_compat import windows_hide_flags
-from tools.toolrush_process import kill_process_tree
+from tools.toolrush_process import NEW_SESSION_KWARGS, kill_process_tree
 
 MAX_CAPTURE_BYTES = 8 * 1024 * 1024
 CHUNK_BYTES = 16384
@@ -114,9 +114,11 @@ def run_rg(argv, *, cwd, env, max_lines, timeout=60, max_bytes=MAX_CAPTURE_BYTES
     """Read bounded output and always reap the process, including cancellation."""
     if interrupt.is_interrupted():
         return Capture('', 130, True, 'search_interrupted')
+    # Own session on POSIX: kill_process_tree must be able to reach rg's whole
+    # tree without the group ever aliasing the gateway's own process group.
     proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            creationflags=windows_hide_flags())
+                            creationflags=windows_hide_flags(), **NEW_SESSION_KWARGS)
     chunks = queue.Queue(maxsize=4)
     stop = threading.Event()
 

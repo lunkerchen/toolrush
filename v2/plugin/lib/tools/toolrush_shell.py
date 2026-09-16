@@ -15,7 +15,7 @@ import time
 import uuid
 
 from hermes_cli._subprocess_compat import windows_hide_flags
-from tools.toolrush_process import kill_process_tree
+from tools.toolrush_process import NEW_SESSION_KWARGS, kill_process_tree
 
 
 class WarmShell:
@@ -28,7 +28,11 @@ class WarmShell:
                 'USER','SHELL','TMPDIR','LANG','LC_ALL','TERM'}
         broker_env = {k:v for k,v in sanitized.items() if k.upper() in keep}
         cwd = local._resolve_safe_cwd(owner.cwd)
-        extra_kwargs = {'creationflags': windows_hide_flags()} if getattr(local, '_IS_WINDOWS', False) else {'preexec_fn': os.setsid}
+        # start_new_session, never preexec_fn: a fork-without-exec hook can
+        # deadlock a multi-threaded host, and the broker must lead its own
+        # process group so close() cannot signal the gateway's group.
+        extra_kwargs = ({'creationflags': windows_hide_flags()}
+                        if getattr(local, '_IS_WINDOWS', False) else dict(NEW_SESSION_KWARGS))
         self.proc = subprocess.Popen([local._find_bash(), '--noprofile','--norc','-s'],
             cwd=cwd, env=broker_env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, bufsize=0, **extra_kwargs)

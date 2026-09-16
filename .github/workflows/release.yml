@@ -6,10 +6,10 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  verify-and-release:
+  version-gate:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -19,25 +19,35 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pytest
-
     - name: Enforce Tag Matches Single Version Source of Truth
       run: |
         TAG_VERSION="${GITHUB_REF_NAME#v}"
-        CODE_VERSION=$(python3 -c "import importlib.util; s=importlib.util.spec_from_file_location('v', 'v2/plugin/version.py'); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(m.VERSION)")
+        CODE_VERSION=$(python3 -c "import runpy; print(runpy.run_path('v2/plugin/version.py')['VERSION'])")
         echo "Tag version: $TAG_VERSION, Code version: $CODE_VERSION"
         if [ "$TAG_VERSION" != "$CODE_VERSION" ]; then
           echo "ERROR: Release tag $GITHUB_REF_NAME does not match v2/plugin/version.py ($CODE_VERSION)"
           exit 1
         fi
 
-    - name: Run Doctor and Test Suite
-      run: |
-        python v2/plugin/doctor.py
-        pytest -v tests/
+  # Full cross-OS/Python matrix from ToolRush CI; release cannot start unless every leg passes.
+  test:
+    needs: version-gate
+    uses: ./.github/workflows/test.yml
+    permissions:
+      contents: read
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
 
     - name: Package Deterministic Release Artifact
       run: |
