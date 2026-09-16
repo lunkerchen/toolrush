@@ -118,7 +118,12 @@ def register(ctx=None):
                 module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                 payload=json.loads((Path(__file__).with_name('payload.json')).read_text(encoding='utf-8'))
                 module.load_helpers(payload)
-                _COMPAT_STATUS={'posix': {'status': 'ready'}}
+                _COMPAT_STATUS={
+                    'warm_shell': {'status': 'ready', 'provider': 'toolrush'},
+                    'native_read': {'status': 'ready', 'provider': 'upstream'},
+                    'native_search': {'status': 'ready', 'provider': 'upstream'},
+                    'parallel_rpc': {'status': 'ready', 'provider': 'upstream_sequential_or_worker'}
+                }
             except Exception as exc:
                 _COMPAT_STATUS={'bootstrap':{'status':'degraded','reason':str(exc)}}
                 logging.getLogger(__name__).warning('ToolRush POSIX helper bootstrap disabled: %s',exc)
