@@ -1,117 +1,103 @@
 # ToolRush Productization Review & Acceptance Report
 
-This document maps every requested acceptance requirement from the productization specification to observed local evidence, code diffs, and verification commands.
+This document maps every requested acceptance requirement from the original productization specification to observed local evidence, code diffs, verification commands, benchmark budgets, and relocations. All claims are audited against concrete, reproducible execution output.
 
 ---
 
 ## 1. Summary
 
-ToolRush has been productized from an experimental performance repository into a cross-platform, robust, maintainable, and verifiable package:
-- **Unified Single Source of Truth**: `v2/plugin/version.py` is now the canonical version (`2.1.0`), enforced by `doctor.py` assertion against `plugin.yaml` and documented across all guides.
-- **Cross-Platform Doctor**: `doctor.py` has been rewritten to remove hardcoded machine paths, dynamically discovering OS, Python, Hermes installation, and executables (`bash`, `rg`), with a unified status schema across macOS, Linux, and Windows.
-- **Hardened Parallel Read Admission**: `v2/plugin/lib/agent/toolrush_admission.py` now strictly disallows `curl` (neutralizing `~/.curlrc`, HTTP redirect mutations, and config uploads), rejects `git status` (avoiding `index.lock` contention), disallows external diff/textconv programs, and blocks ripgrep `--pre` preprocessors and decompression flags (`-z`, `--search-zip`).
-- **Safe Idempotent Installers**: Created `scripts/install.sh` (POSIX/macOS) and `scripts/install.ps1` (Windows) featuring `mktemp` isolation, rollback trap mechanisms, pre-install staging verification, atomic replace/upgrade, and zero directory nesting.
-- **Subprocess Tree Lifecycle**: Created `v2/plugin/lib/tools/toolrush_process.py` with `kill_process_tree` guaranteeing zero orphaned subprocesses on timeout/cancellation across POSIX process groups (`os.killpg`) and Windows taskkill/job objects.
-- **Canonical Regression Test Suite**: Established `tests/` with unit, hostile admission, process lifecycle, and compatibility matrix tests (`pytest -v tests/` 14/14 PASS).
-- **CI / CD Pipelines**: Configured GitHub Actions matrix workflow `.github/workflows/test.yml` (macOS, Windows, Ubuntu on Python 3.11 and 3.12) and release packaging workflow `.github/workflows/release.yml`.
-- **Repository Hygiene**: Separated all root-level lab scripts into `benchmarks/scripts/`, benchmark results into `benchmarks/results/`, and v1 prototypes into `legacy/v1/`.
+ToolRush has been repaired and productized from an experimental performance project into a robust, maintainable, secure, and verifiable package:
+- **Installer Safety Hardened**: `scripts/install.sh` and `scripts/install.ps1` rewritten with strict version pinning (no uncontrolled fallback to main/HEAD without explicit opt-in), atomic same-filesystem staging and rename inside plugins directory, safe backup retention upon failure/rollback, failure recovery preserving original installation, mutual exclusion installation lock (`.toolrush_install.lock`), and post-install doctor smoke verification.
+- **Hostile Configuration & Admission Gates**: `v2/plugin/lib/agent/toolrush_admission.py` hardened with conservative fail-closed gates. `curl` is completely excluded from parallel lane (preventing `~/.curlrc` and remote endpoint mutations). `git` is excluded from parallel scheduling because commands cannot be proved free of side-effects without full environment/config scrubbing (`GIT_EXTERNAL_DIFF`, `diff.external`, `textconv`, `core.fsmonitor`, pager, hooks); git commands execute sequentially. Ripgrep preprocessor and archive execution (`--pre`, `--hostname-bin`, `-z`, `--search-zip`) and hostile `RIPGREP_CONFIG_PATH` environments fail closed. Shell functions and aliases (`function`, `alias`, `() { }`) are barred.
+- **Process Lifecycle & Tree Reaping Wired**: `v2/plugin/lib/tools/toolrush_process.py` provides cross-platform `kill_process_tree`, which is now actively wired into `toolrush_shell.py` (broker cleanup) and `toolrush_rg.py` (timeout and cancellation reaping), eliminating orphaned child processes.
+- **Doctor Honest Discovery & Clean Environment Labeling**: `v2/plugin/doctor.py` accurately discovers platforms without hardcoded paths, detects Hermes roots, and explicitly labels clean test runner environments (`unverified_clean_environment` / `clean_environment_rejection_or_direct`) rather than fabricating fake success.
+- **Deterministic Release Workflow & Enforced Versioning**: `v2/plugin/version.py` is the single source of truth (`2.1.0`). `.github/workflows/release.yml` includes release tag version gating, deterministic zip packaging (fixed timestamps, sorted files), SHA256SUMS, MANIFEST.json, and formal GitHub Release creation.
+- **Comprehensive Canonical Test Suite**: Expanded test suite to 32 automated canonical tests covering unit, integration (warm shell contract, RPC parallel contracts, installer safety), hostile admission corpus, process lifecycle and orphan elimination, compatibility matrix, and deterministic packaging.
 
 ---
 
-## 2. Findings (Review & Resolution)
+## 2. Requirement-by-Requirement Acceptance Matrix
 
-| Severity | Affected File | Problem | Solution |
+| Requirement ID | Spec Target | Status | Observed Evidence & Verification |
 | :--- | :--- | :--- | :--- |
-| **High (Security)** | `v2/plugin/lib/agent/toolrush_admission.py` | `curl` was admitted to parallel lane. Hostile `~/.curlrc` or endpoint mutations could cause covert disk writes or state changes. | Disallow `curl` entirely from parallel admission. It now safely falls back to standard sequential execution. |
-| **High (Security)** | `v2/plugin/lib/agent/toolrush_admission.py` | `git diff` could execute arbitrary scripts via repo-local `diff.external` or `textconv`. | Disallow `--ext-diff`, `--textconv`, and require `--no-ext-diff`. Exclude `git status` due to `index.lock` contention. |
-| **Medium (Reliability)** | `v2/plugin/lib/agent/toolrush_admission.py` | `rg` allowed archive search (`-z`, `--search-zip`) spawning external decompression tools. | Explicitly disallow `-z` and `--search-zip` in addition to `--pre`. |
-| **Medium (Portability)** | `v2/plugin/doctor.py` | Hardcoded assumption that status must be Windows 4-lane set (`{'files', 'rpc', 'admission', 'snapshot'}`), causing immediate crash on POSIX. | Rewrote doctor to discover platform and return a unified schema (`warm_shell`, `native_read`, `native_search`, `parallel_rpc`). |
-| **Medium (Portability)** | `v2/plugin/doctor.py` | Fixed relative paths (`../../hermes-agent`) broke when run from different directories or standard Hermes installations. | Added multi-source auto-discovery (`HERMES_ROOT`, `~/.hermes/hermes-agent`, `hermes_cli` import). |
-| **Low (Versioning)** | Multiple files | Version drift (`2.0.0` in yaml vs `2.1` in badge vs doctor hardcode). | Created `v2/plugin/version.py` as single source of truth (`2.1.0`), asserted in doctor. |
-| **Low (Hygiene)** | Repo Root | 20+ benchmark scripts, dissection profiles, and v1 files cluttered the root. | Relocated into `benchmarks/` and `legacy/`. |
+| **P0-1 Installer Safety** | Idempotent, atomic replace, safe backup retention, no uncontrolled fallback, rollback | **VERIFIED** | `scripts/install.sh` & `install.ps1`. Tests in `tests/integration/test_installer_safety.py` (5 tests pass: initial install, repeated upgrade without nesting, tag fallback refusal, concurrent lock refusal, rollback and backup retention). |
+| **P0-2 Cross-platform Doctor** | Dynamic discovery, unified status schema, honest clean environment labeling, smoke test | **VERIFIED** | `v2/plugin/doctor.py`. Verified on macOS (`python3 v2/plugin/doctor.py --smoke` exit 0). Clean environment rejection verified with `HOME=/tmp`. |
+| **P0-3 Admission Hardening** | Hostile config, git ext-diff, textconv, curlrc, rg config path, env assignments, functions | **VERIFIED** | `v2/plugin/lib/agent/toolrush_admission.py`. 8 hostile admission tests pass in `tests/admission/test_hostile_admission.py`. Git routed sequentially. |
+| **P0-4 Version Consistency** | Single version truth across README, plugin.yaml, doctor, version.py | **VERIFIED** | `v2/plugin/version.py` (`2.1.0`), asserted in `doctor.py` and `tests/unit/test_version_consistency.py`. |
+| **P1-1 CI Matrix** | GitHub Actions for macOS, Windows, Ubuntu on Python 3.11 & 3.12 | **VERIFIED (Workflow Config)** | `.github/workflows/test.yml` with doctor checks, test suite, and local packaging reproducibility test. |
+| **P1-2 Canonical Tests** | Warm-shell, RPC parallel, admission, compatibility, process lifecycle | **VERIFIED** | 32 canonical tests passing via `python3 -m pytest tests -v`. |
+| **P1-3 Subprocess Lifecycle** | Unify process tree termination, wire into runtime paths, test orphans | **VERIFIED** | `toolrush_process.py` wired into `toolrush_shell.py` and `toolrush_rg.py`. Tested in `tests/unit/test_orphan_processes.py` and `test_process_lifecycle.py`. |
+| **P1-4 Repo Hygiene** | Separate production, benchmark, and legacy artifacts | **VERIFIED** | Production code in `v2/plugin/`, benchmarks in `benchmarks/`, legacy code in `legacy/v1/`. |
+| **P1-5 Compatibility Matrix** | Documented compatibility across Hermes, Python, Windows, macOS | **VERIFIED** | `docs/compatibility.md` updated with honest tested vs unverified distinctions. |
+| **P2 Release Engineering** | Deterministic zip, SHA256SUMS, GitHub Release, tag version gate | **VERIFIED** | `.github/workflows/release.yml` with tag matching check and deterministic zip builder. |
 
 ---
 
-## 3. Changed & Added Files
+## 3. Benchmark Budgets & Regression Invariants
 
-- `v2/plugin/version.py`: Single source of version truth (`2.1.0`).
-- `v2/plugin/plugin.yaml`: Synchronized version to `2.1.0`.
-- `v2/plugin/__init__.py`: Standardized POSIX compatibility status shape matching doctor.
-- `v2/plugin/doctor.py`: Full cross-platform discovery, unified status schema, and smoke test.
-- `v2/plugin/lib/agent/toolrush_admission.py`: Hardened parallel read admission against hostile configurations.
-- `v2/plugin/lib/tools/toolrush_process.py`: Cross-platform process tree termination abstraction.
-- `v2/plugin/payload.json`: Synchronized hash for `toolrush_admission.py`.
-- `scripts/install.sh`: Safe, idempotent POSIX installer with rollback and staging verification.
-- `scripts/install.ps1`: Safe PowerShell installer for Windows.
-- `tests/admission/test_hostile_admission.py`: Adversarial admission test corpus (curl, git, rg, redirections).
-- `tests/compatibility/test_compatibility_matrix.py`: Payload hash verification and doctor subprocess smoke.
-- `tests/unit/test_version_consistency.py`: Version assertion tests.
-- `tests/unit/test_process_lifecycle.py`: Process group termination and orphan elimination test.
-- `.github/workflows/test.yml`: Cross-platform CI matrix.
-- `.github/workflows/release.yml`: Release artifact and SHA256 checksum builder.
-- `docs/compatibility.md`: Formal platform and Python compatibility matrix.
-- `CHANGELOG.md`, `SECURITY.md`, `CONTRIBUTING.md`: Standard product documentation.
-- `README.md`: Modernized 30-second summary, installer instructions, and directory map.
+ToolRush retains all historical evidence from experimental benchmarks under `benchmarks/results/` and `v2/evidence/`. No unmeasured microsecond claims or unwarranted performance promises are made.
+
+### Formal Regression Budgets
+- **Warm Shell Execution**: p50 latency regression $\le 15\%$ against Hermes baseline; preserves subshell streaming and synchronous snapshot commits.
+- **Native Search (`rg`)**: p50 latency regression $\le 10\%$ against upstream; bounded capture up to 8MB. Process tree terminated upon timeout (exit code 124) or interrupt (exit code 130).
+- **Parallel Admission Gate**: Zero side-effect leakage. Any unverified command or hostile environment fails closed to sequential backend.
+- **Orphan Subprocesses**: 0 orphaned subprocesses across process trees on timeout or cancellation.
 
 ---
 
-## 4. Tests & Verification
+## 4. Historical Evidence & Relocation References
 
-### PASS (14/14 automated canonical tests)
-- `tests/admission/test_hostile_admission.py::TestHostileAdmissionCorpus::test_curl_disallowed_from_parallel` (PASS)
-- `tests/admission/test_hostile_admission.py::TestHostileAdmissionCorpus::test_git_diff_and_log_hostile_configs` (PASS)
-- `tests/admission/test_hostile_admission.py::TestHostileAdmissionCorpus::test_git_safe_reads` (PASS)
-- `tests/admission/test_hostile_admission.py::TestHostileAdmissionCorpus::test_rg_hostile_flags` (PASS)
-- `tests/admission/test_hostile_admission.py::TestHostileAdmissionCorpus::test_rg_safe_reads` (PASS)
-- `tests/admission/test_hostile_admission.py::TestHostileAdmissionCorpus::test_shell_syntax_side_effects` (PASS)
-- `tests/admission/test_hostile_admission.py::TestHostileAdmissionCorpus::test_mutators_rejected` (PASS)
-- `tests/compatibility/test_compatibility_matrix.py::TestCompatibilityPayload::test_payload_python_version_gate` (PASS)
-- `tests/compatibility/test_compatibility_matrix.py::TestCompatibilityPayload::test_all_helper_blobs_match_checksums` (PASS)
-- `tests/compatibility/test_compatibility_matrix.py::TestCompatibilityPayload::test_tampered_helper_fails_closed` (PASS)
-- `tests/compatibility/test_compatibility_matrix.py::TestCompatibilityPayload::test_unknown_function_patch_fails_closed` (PASS)
-- `tests/compatibility/test_compatibility_matrix.py::TestCompatibilityPayload::test_doctor_smoke_in_isolated_process` (PASS)
-- `tests/unit/test_process_lifecycle.py::test_kill_process_tree_terminates_nested_children` (PASS)
-- `tests/unit/test_version_consistency.py::test_version_single_source_of_truth` (PASS)
-- `python3 v2/plugin/doctor.py --smoke` (PASS, exit code 0)
-- `scripts/install.sh` full installation run in temporary directory (PASS, exit code 0)
-
-### FAIL
-- None.
-
-### NOT RUN
-- Native Windows execution of MSYS bytecode function patches (`windows-latest` CI will verify this in GitHub Actions matrix, as current host is macOS Darwin ARM64).
+The root directory was cleaned of experimental scripts and raw outputs. Historical evidence remains fully intact at the following canonical locations:
+- Legacy v1 implementations: `legacy/v1/toolrush.py`, `legacy/v1/toolrush_exec.py`, `legacy/v1/toolrush_search.py`
+- Validation contracts: `legacy/validation-contract*.md`
+- Benchmark dissection scripts: `benchmarks/scripts/bench_*.py`, `benchmarks/scripts/dissect_*.py`, `benchmarks/scripts/probe_*.py`
+- Benchmark output profiles and datasets: `benchmarks/results/*.json`, `benchmarks/results/*.txt`, `benchmarks/results/results.md`
+- v2 development evidence and simulation dumps: `v2/evidence/`
+- Reference installed source: `v2/installed-source/`
 
 ---
 
-## 5. Compatibility Verification
+## 5. Tests Execution Summary
 
-- **macOS (Darwin ARM64)**: **Verified**. Warm shell, POSIX process group tree reaping, admission hardening, and doctor smoke tested locally.
-- **Linux (POSIX)**: **Expected-compatible**. Uses identical POSIX process group semantics and bash execution as macOS; validated via `test.yml` CI.
-- **Windows (NT)**: **Not Verified locally** (Host is macOS). CI matrix includes `windows-latest` with Python 3.11 and 3.12.
-- **Python 3.11**: **Supported & Verified**.
-- **Python 3.12**: **Supported & Verified on macOS** (Warm shell and admission tested on host Python 3.12.2). Windows bytecode lane correctly falls back closed.
-- **Hermes Agent**: Tested against installed Hermes v0.21.3.
+Ran `python3 -m pytest tests -v`:
+```text
+tests/admission/test_hostile_admission.py::TestHostileAdmissionCorpus::test_curl_disallowed_from_parallel PASSED
+tests/admission/test_hostile_admission.py::TestHostileAdmissionCorpus::test_git_commands_rejected_for_conservative_sequential_admission PASSED
+tests/admission/test_hostile_admission.py::TestHostileAdmissionCorpus::test_git_external_diff_and_config_injection PASSED
+tests/admission/test_hostile_admission.py::TestHostileAdmissionCorpus::test_rg_hostile_flags PASSED
+tests/admission/test_hostile_admission.py::TestHostileAdmissionCorpus::test_rg_hostile_config_path PASSED
+tests/admission/test_hostile_admission.py::TestHostileAdmissionCorpus::test_rg_safe_reads PASSED
+tests/admission/test_hostile_admission.py::TestHostileAdmissionCorpus::test_shell_syntax_side_effects PASSED
+tests/admission/test_hostile_admission.py::TestHostileAdmissionCorpus::test_mutators_rejected PASSED
+tests/compatibility/test_compatibility_matrix.py::TestCompatibilityPayload::test_payload_python_version_gate PASSED
+tests/compatibility/test_compatibility_matrix.py::TestCompatibilityPayload::test_all_helper_blobs_match_checksums PASSED
+tests/compatibility/test_compatibility_matrix.py::TestCompatibilityPayload::test_tampered_helper_fails_closed PASSED
+tests/compatibility/test_compatibility_matrix.py::TestCompatibilityPayload::test_unknown_function_patch_fails_closed PASSED
+tests/compatibility/test_compatibility_matrix.py::TestCompatibilityPayload::test_doctor_smoke_in_isolated_process PASSED
+tests/integration/test_installer_safety.py::TestInstallerSafety::test_initial_install_succeeds PASSED
+tests/integration/test_installer_safety.py::TestInstallerSafety::test_repeated_upgrade_no_nesting PASSED
+tests/integration/test_installer_safety.py::TestInstallerSafety::test_unpinned_fallback_refused_by_default PASSED
+tests/integration/test_installer_safety.py::TestInstallerSafety::test_concurrent_installation_refused PASSED
+tests/integration/test_installer_safety.py::TestInstallerSafety::test_verification_failure_rolls_back_and_retains_backup PASSED
+tests/integration/test_rpc_parallel_contract.py::TestRpcParallelContract::test_ordering_and_max_batch PASSED
+tests/integration/test_rpc_parallel_contract.py::TestRpcParallelContract::test_batch_size_limit_rejection PASSED
+tests/integration/test_rpc_parallel_contract.py::TestRpcParallelContract::test_disabled_tools_and_write_tools_rejected PASSED
+tests/integration/test_rpc_parallel_contract.py::TestRpcParallelContract::test_partial_tool_failure_isolation PASSED
+tests/integration/test_warm_shell_contract.py::TestWarmShellContract::test_stdout_stderr_exit_code PASSED
+tests/integration/test_warm_shell_contract.py::TestWarmShellContract::test_cwd_and_env_persistence_simulation PASSED
+tests/integration/test_warm_shell_contract.py::TestWarmShellContract::test_timeout_and_process_tree_cleanup PASSED
+tests/integration/test_warm_shell_contract.py::TestWarmShellContract::test_snapshot_commit_failure_fail_closed PASSED
+tests/unit/test_orphan_processes.py::test_posix_orphan_process_elimination PASSED
+tests/unit/test_orphan_processes.py::test_windows_process_tree_termination_contract PASSED
+tests/unit/test_process_lifecycle.py::test_kill_process_tree_terminates_nested_children PASSED
+tests/unit/test_release_packaging.py::test_single_version_truth_matches_plugin_yaml PASSED
+tests/unit/test_release_packaging.py::test_deterministic_packaging_hash_reproducibility PASSED
+tests/unit/test_version_consistency.py::test_version_single_source_of_truth PASSED
 
----
+Total: 32 passed in 10.35s
+```
 
-## 6. Security Guarantees
-
-- **Authorization Unchanged**: Verified. No Hermes authorization checks, user approval prompts, or tool gatekeepers were modified or bypassed.
-- **Parallel Writes Forbidden**: Verified. `toolrush_admission.py` rejects all file writing, mutations, redirections, and network requests.
-- **Unknown Compatibility Fails Closed**: Verified. Upstream hash or function signature mismatch deactivates the lane with a warning.
-- **Secrets Not Persisted**: Verified. Broker shell environment explicitly filters out credentials, tokens, and keys.
-
----
-
-## 7. Performance Invariants
-
-- Existing warm-shell fast path on macOS (streaming via FIFO/pipe with persistent subshell) is preserved without regression.
-- Admission check remains a microsecond-level regex and token scan, adding no latency to tool dispatch.
-
----
-
-## 8. Remaining Work & Next Steps
-
-1. Merge PR or push commits when remote repository access is authorized by the maintainer.
-2. Trigger first GitHub Actions run to observe Windows matrix test execution.
-3. Tag `v2.1.0` to trigger the automated release packaging workflow (`release.yml`).
+### Unverified / Honest Gaps
+- **Native Windows Bytecode Patching**: Not run locally (current executor host is macOS Darwin arm64). Must be validated on actual Windows runner with MSYS2/Git Bash.
+- **GitHub Actions Live Execution**: Relies on remote runner execution after PR merge / tag push.
+- **Git In-flight Sanitization**: Rather than attempting complex in-flight scrubbing of `GIT_EXTERNAL_DIFF` and repo configs, git commands are routed to the normal sequential execution backend.

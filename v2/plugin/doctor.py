@@ -118,8 +118,9 @@ try:
             'reason': None if warm_status == 'ready' else 'bash executable not found'
         }
         result['lanes']['native_read'] = {
-            'status': 'ready' if hermes_root else 'unverified',
+            'status': 'ready' if hermes_root else 'unverified_clean_environment',
             'provider': 'upstream',
+            'reason': None if hermes_root else 'hermes_root not present in clean environment'
         }
         result['lanes']['native_search'] = {
             'status': 'ready' if rg_path else 'degraded',
@@ -133,21 +134,31 @@ try:
         lanes_ok = result['lanes']['warm_shell']['status'] == 'ready'
 
     if args.smoke:
-        # Cross-platform smoke test: verify plugin load & execution
-        try:
-            from hermes_cli.plugins import PluginManager, PluginManifest
-            manager = PluginManager()
-            manager._load_plugin(PluginManifest(name='toolrush', version=VERSION, source='user', path=str(P), key='toolrush'))
-            loaded = manager._plugins.get('toolrush')
-            assert loaded and loaded.enabled and not loaded.error, f"Plugin failed to load: {getattr(loaded, 'error', None)}"
-            result['boot'] = {'status': 'ready', 'version': VERSION}
-        except Exception:
-            # Fallback direct module registration test if hermes_cli not installed or plugins disabled
-            spec = importlib.util.spec_from_file_location('toolrush', P / '__init__.py')
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            mod.register(None)
-            result['boot'] = {'status': 'ready', 'version': VERSION, 'mode': 'direct_register'}
+        # Cross-platform smoke test: verify plugin load & fresh subprocess lanes without model/user writes
+        boot_status = {'status': 'unverified', 'version': VERSION}
+        if hermes_root:
+            try:
+                from hermes_cli.plugins import PluginManager, PluginManifest
+                manager = PluginManager()
+                manager._load_plugin(PluginManifest(name='toolrush', version=VERSION, source='user', path=str(P), key='toolrush'))
+                loaded = manager._plugins.get('toolrush')
+                assert loaded and loaded.enabled and not loaded.error, f"Plugin failed to load: {getattr(loaded, 'error', None)}"
+                boot_status = {'status': 'ready', 'version': VERSION, 'mode': 'hermes_cli'}
+            except Exception as exc:
+                boot_status = {'status': 'degraded', 'version': VERSION, 'reason': f"hermes_cli plugin loader failed: {exc}"}
+        else:
+            # In clean environments without hermes_cli installed, label clearly rather than forcing success
+            try:
+                spec = importlib.util.spec_from_file_location('toolrush', P / '__init__.py')
+                if spec is not None and spec.loader is not None:
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    boot_status = {'status': 'clean_environment_rejection_or_direct', 'version': VERSION, 'hermes_installed': False}
+                else:
+                    boot_status = {'status': 'degraded', 'version': VERSION, 'reason': 'Failed to resolve module spec'}
+            except Exception as exc:
+                boot_status = {'status': 'degraded', 'version': VERSION, 'reason': str(exc)}
+        result['boot'] = boot_status
 
     result['ok'] = lanes_ok
 except Exception as exc:

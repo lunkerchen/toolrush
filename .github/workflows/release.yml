@@ -5,8 +5,11 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
-  verify:
+  verify-and-release:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -21,24 +24,54 @@ jobs:
         python -m pip install --upgrade pip
         pip install pytest
 
-    - name: Run Test Suite
+    - name: Enforce Tag Matches Single Version Source of Truth
+      run: |
+        TAG_VERSION="${GITHUB_REF_NAME#v}"
+        CODE_VERSION=$(python3 -c "import importlib.util; s=importlib.util.spec_from_file_location('v', 'v2/plugin/version.py'); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(m.VERSION)")
+        echo "Tag version: $TAG_VERSION, Code version: $CODE_VERSION"
+        if [ "$TAG_VERSION" != "$CODE_VERSION" ]; then
+          echo "ERROR: Release tag $GITHUB_REF_NAME does not match v2/plugin/version.py ($CODE_VERSION)"
+          exit 1
+        fi
+
+    - name: Run Doctor and Test Suite
       run: |
         python v2/plugin/doctor.py
         pytest -v tests/
 
-    - name: Package Release Artifact
+    - name: Package Deterministic Release Artifact
       run: |
         VERSION="${GITHUB_REF_NAME#v}"
         mkdir -p dist
-        cd v2/plugin
-        zip -r "../../dist/toolrush-${VERSION}.zip" . -x "*.pyc" -x "__pycache__/*"
-        cd ../..
+        python3 -c "
+        import os, zipfile, time
+        # Deterministic zip creation: normalized timestamps and sorted file list
+        zip_path = f'dist/toolrush-{VERSION}.zip'
+        fixed_time = (2026, 1, 1, 0, 0, 0)
+        with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk('v2/plugin'):
+                dirs.sort()
+                for file in sorted(files):
+                    if file.endswith('.pyc') or '__pycache__' in root:
+                        continue
+                    full_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(full_path, 'v2/plugin')
+                    zinfo = zipfile.ZipInfo(rel_path, date_time=fixed_time)
+                    zinfo.external_attr = 0o644 << 16
+                    with open(full_path, 'rb') as f:
+                        zf.writestr(zinfo, f.read())
+        "
         cd dist
         sha256sum "toolrush-${VERSION}.zip" > SHA256SUMS
         echo "{\"version\": \"${VERSION}\", \"tag\": \"${GITHUB_REF_NAME}\", \"artifact\": \"toolrush-${VERSION}.zip\"}" > MANIFEST.json
 
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@v4
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
       with:
-        name: release-assets
-        path: dist/*
+        files: |
+          dist/toolrush-*.zip
+          dist/SHA256SUMS
+          dist/MANIFEST.json
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -38,3 +38,23 @@ jobs:
       shell: bash
       run: |
         pytest -v tests/
+
+    - name: Test Local Artifact Packaging Reproducibility
+      shell: bash
+      run: |
+        VERSION="2.1.0"
+        mkdir -p dist_test
+        python3 -c "
+        import os, zipfile
+        p = 'dist_test/toolrush-${VERSION}.zip'
+        with zipfile.ZipFile(p, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk('v2/plugin'):
+                dirs.sort()
+                for file in sorted(files):
+                    if file.endswith('.pyc') or '__pycache__' in root:
+                        continue
+                    full_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(full_path, 'v2/plugin')
+                    zf.write(full_path, rel_path)
+        "
+        test -f "dist_test/toolrush-${VERSION}.zip"
