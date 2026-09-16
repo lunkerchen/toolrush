@@ -15,6 +15,7 @@ import time
 
 from tools import interrupt
 from hermes_cli._subprocess_compat import windows_hide_flags
+from tools.toolrush_process import kill_process_tree
 
 MAX_CAPTURE_BYTES = 8 * 1024 * 1024
 CHUNK_BYTES = 16384
@@ -188,9 +189,9 @@ def run_rg(argv, *, cwd, env, max_lines, timeout=60, max_bytes=MAX_CAPTURE_BYTES
                 proc.wait(timeout=max(0.01, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:
                 reason = 'search_timeout'
-        if proc.poll() is None:
-            proc.kill()
-        code = proc.wait(timeout=5)
+        kill_process_tree(proc, timeout=5.0)
+        ret = proc.poll()
+        code = ret if ret is not None else 1
         reader.join(timeout=2)
         proc.stdout.close()
     if reason == 'search_timeout':

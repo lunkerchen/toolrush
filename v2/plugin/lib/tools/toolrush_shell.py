@@ -15,6 +15,7 @@ import time
 import uuid
 
 from hermes_cli._subprocess_compat import windows_hide_flags
+from tools.toolrush_process import kill_process_tree
 
 
 class WarmShell:
@@ -36,30 +37,7 @@ class WarmShell:
 
     def close(self):
         self.dead = True
-        if self.proc.poll() is None:
-            if getattr(os, 'name', '') == 'nt':
-                try:
-                    from agent.deadline import kill_process_tree
-                    kill_process_tree(self.proc.pid)
-                finally:
-                    if self.proc.poll() is None:
-                        self.proc.kill()
-            else:
-                try:
-                    pgid = os.getpgid(self.proc.pid)
-                    os.killpg(pgid, signal.SIGTERM)
-                    time.sleep(0.05)
-                    try:
-                        os.killpg(pgid, signal.SIGKILL)
-                    except (OSError, ProcessLookupError):
-                        pass
-                except (OSError, ProcessLookupError):
-                    if self.proc.poll() is None:
-                        self.proc.kill()
-        try:
-            self.proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
+        kill_process_tree(self.proc, timeout=3.0)
         for pipe in (self.proc.stdin, self.proc.stdout):
             try: pipe.close()
             except (OSError, ValueError): pass
