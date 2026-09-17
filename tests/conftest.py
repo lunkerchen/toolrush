@@ -8,6 +8,7 @@ reimplementation of production logic in the tests.
 """
 import contextlib
 import importlib
+import os
 import sys
 import types
 from pathlib import Path
@@ -79,6 +80,60 @@ def _install_host_stubs():
 
 
 _install_host_stubs()
+
+
+def hermes_root():
+    """A real hermes-agent root, or None. Mirrors ``doctor.py`` discovery order.
+
+    doctor.py is fail-closed by design: with no Hermes install it reports
+    ok=false and exits 2. Any test whose assertion needs a *successful* doctor
+    run therefore has an unsatisfiable precondition on a bare CI runner, so it
+    skips there instead of failing. Guards against the conftest stub above,
+    which is a module object with no ``__file__``.
+    """
+    for candidate in (os.environ.get("HERMES_ROOT"),
+                      Path.home() / ".hermes" / "hermes-agent",
+                      REPO_ROOT.parent / "hermes-agent"):
+        if candidate and (Path(candidate) / "hermes_cli").is_dir():
+            return str(Path(candidate).resolve())
+    try:
+        import hermes_cli
+    except ImportError:
+        return None
+    module_file = getattr(hermes_cli, "__file__", None)
+    if not module_file:
+        return None
+    return str(Path(module_file).parent.parent.resolve())
+
+
+@pytest.fixture
+def need_hermes_install():
+    """Skip when no Hermes install is present (``pip install hermes-agent``)."""
+    if hermes_root() is None:
+        pytest.skip("needs a Hermes install: doctor.py is fail-closed without one")
+
+
+@pytest.fixture
+def need_posix_shell():
+    """Skip where POSIX shell semantics are unavailable.
+
+    ``scripts/install.sh`` is executed directly and relies on shebang
+    execution, ``trap``/signal delivery and job control that Windows does not
+    provide; porting the installer tests needs an explicit ``bash`` invocation.
+    """
+    if sys.platform == "win32":
+        pytest.skip("install.sh is executed directly and needs POSIX trap/signal semantics")
+
+
+@pytest.fixture
+def need_posix_lanes():
+    """Skip where doctor.py reports the Windows bytecode-patch lane schema.
+
+    On POSIX doctor reports warm_shell/native_read/native_search/parallel_rpc;
+    Windows instead reports the payload lanes (files/rpc/admission/snapshot).
+    """
+    if sys.platform == "win32":
+        pytest.skip("POSIX doctor lane schema (warm_shell) is not reported on Windows")
 
 
 @pytest.fixture(scope="session")

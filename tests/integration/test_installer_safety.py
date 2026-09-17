@@ -11,6 +11,11 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[2] / 'scripts'
 INSTALL_SH = SCRIPTS_DIR / 'install.sh'
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# install.sh is executed directly and verifies the staged plugin with doctor.py,
+# so every test here needs POSIX shell semantics.
+pytestmark = pytest.mark.usefixtures('need_posix_shell')
+
+
 class TestInstallerSafety:
     @pytest.fixture
     def fake_env(self):
@@ -20,7 +25,7 @@ class TestInstallerSafety:
             plugins_dir.mkdir(parents=True)
             yield {'td': td, 'hermes': hermes_dir, 'plugins': plugins_dir}
 
-    def test_initial_install_succeeds(self, fake_env):
+    def test_initial_install_succeeds(self, fake_env, need_hermes_install):
         env = os.environ.copy()
         env['HERMES_HOME'] = str(fake_env['hermes'])
         env['TOOLRUSH_REPO'] = str(REPO_ROOT)
@@ -34,7 +39,7 @@ class TestInstallerSafety:
         assert (target / 'plugin.yaml').is_file()
         assert (target / 'doctor.py').is_file()
 
-    def test_repeated_upgrade_no_nesting(self, fake_env):
+    def test_repeated_upgrade_no_nesting(self, fake_env, need_hermes_install):
         env = os.environ.copy()
         env['HERMES_HOME'] = str(fake_env['hermes'])
         env['TOOLRUSH_REPO'] = str(REPO_ROOT)
@@ -107,7 +112,7 @@ class TestInstallerSafety:
         assert canary.exists(), "Canary not restored after verification failure!"
         assert canary.read_text() == "existing-version-canary"
 
-    def test_release_archive_installation(self, fake_env, package_release):
+    def test_release_archive_installation(self, fake_env, package_release, need_hermes_install):
         # Build genuine release artifact using package_release
         with tempfile.TemporaryDirectory() as dist_dir:
             import importlib.util

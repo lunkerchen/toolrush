@@ -13,7 +13,7 @@ spec.loader.exec_module(proc_mod)
 kill_process_tree = proc_mod.kill_process_tree
 
 
-def test_kill_process_tree_terminates_nested_children():
+def test_kill_process_tree_terminates_nested_children(need_posix_shell):
     # Spawn a process that spawns a child
     extra = {'preexec_fn': os.setsid} if os.name != 'nt' else {}
     proc = subprocess.Popen(

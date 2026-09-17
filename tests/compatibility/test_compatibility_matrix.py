@@ -23,7 +23,15 @@ def _real_hermes_root():
                       P.parent.parent / 'hermes-agent'):
         if candidate and (Path(candidate) / 'hermes_cli').is_dir():
             return str(Path(candidate).resolve())
-    return None
+    try:
+        import hermes_cli
+    except ImportError:
+        return None
+    # conftest may have registered a stub hermes_cli; a stub is not an install.
+    module_file = getattr(hermes_cli, '__file__', None)
+    if not module_file:
+        return None
+    return str(Path(module_file).parent.parent.resolve())
 
 
 def _isolated_env(tmp_path, **overrides):
@@ -81,7 +89,7 @@ class TestCompatibilityPayload:
         with pytest.raises(Exception):
             compat.prepare_rows([bad_row])
 
-    def test_doctor_smoke_in_isolated_process(self, tmp_path):
+    def test_doctor_smoke_in_isolated_process(self, tmp_path, need_hermes_install):
         # Run doctor --smoke as a clean subprocess with isolated HOME and explicit HERMES_ROOT
         hermes_root = _real_hermes_root()
         env = _isolated_env(tmp_path, HERMES_ROOT=hermes_root)
@@ -101,7 +109,7 @@ class TestCompatibilityPayload:
         assert doc['ok'] is False
         assert doc.get('hermes_status') == 'missing'
 
-    def test_doctor_degraded_when_bash_missing(self, tmp_path):
+    def test_doctor_degraded_when_bash_missing(self, tmp_path, need_posix_lanes):
         # Missing bash executable
         hermes_root = _real_hermes_root()
         env = _isolated_env(tmp_path, HERMES_ROOT=hermes_root, PATH='/nonexistent_path_no_bin')
