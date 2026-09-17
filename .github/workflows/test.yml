@@ -32,11 +32,25 @@ jobs:
         python -m pip install --upgrade pip
         pip install pytest
 
-    - name: Run Doctor (Basic & Smoke)
+    - name: Run Doctor (integrity + fail-closed contract)
       shell: bash
       run: |
-        python v2/plugin/doctor.py
-        python v2/plugin/doctor.py --smoke
+        set +e
+        python v2/plugin/doctor.py > doctor-basic.json 2>&1
+        basic_code=$?
+        python v2/plugin/doctor.py --smoke > doctor-smoke.json 2>&1
+        smoke_code=$?
+        set -e
+        echo '--- doctor.py ---'
+        cat doctor-basic.json
+        echo '--- doctor.py --smoke ---'
+        cat doctor-smoke.json
+        # A CI runner has no Hermes install, so doctor must fail closed (exit 2)
+        # rather than report a success it cannot honestly claim. Assert the
+        # contract instead: payload integrity on every platform, no unexpected
+        # error, and exit code consistent with Hermes presence.
+        python scripts/verify_doctor_contract.py doctor-basic.json "$basic_code"
+        python scripts/verify_doctor_contract.py doctor-smoke.json "$smoke_code" --smoke
 
     - name: Run Test Suite
       shell: bash
@@ -46,11 +60,13 @@ jobs:
     - name: Test Local Artifact Packaging Reproducibility
       shell: bash
       run: |
-        VERSION=$(python3 -c "import runpy; print(runpy.run_path('v2/plugin/version.py')['VERSION'])")
-        python3 scripts/package_release.py --version "$VERSION" --output-dir dist1
-        python3 scripts/package_release.py --version "$VERSION" --output-dir dist2
-        A=$(python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "dist1/toolrush-${VERSION}.zip")
-        B=$(python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "dist2/toolrush-${VERSION}.zip")
+        # 'python' (not 'python3') is the interpreter actions/setup-python
+        # guarantees on all three matrix OSes.
+        VERSION=$(python -c "import runpy; print(runpy.run_path('v2/plugin/version.py')['VERSION'])")
+        python scripts/package_release.py --version "$VERSION" --output-dir dist1
+        python scripts/package_release.py --version "$VERSION" --output-dir dist2
+        A=$(python -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "dist1/toolrush-${VERSION}.zip")
+        B=$(python -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "dist2/toolrush-${VERSION}.zip")
         echo "run1=$A"
         echo "run2=$B"
         test "$A" = "$B"

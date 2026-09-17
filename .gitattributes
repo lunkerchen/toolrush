@@ -1,0 +1,22 @@
+# Line-ending policy.
+#
+# v2/plugin/payload.json pins the sha256 of every file under v2/plugin/lib/**.
+# compat.verify_blob() rejects any byte difference, so a checkout that rewrites
+# LF -> CRLF breaks the install with "ToolRush payload hash mismatch". GitHub's
+# windows-latest runner defaults to core.autocrlf=true, which did exactly that.
+# Keep every text file LF on checkout and commit so the hashed bytes are stable
+# on all three platforms (and so packaged SHA256SUMS/MANIFEST stay reproducible).
+* text=auto eol=lf
+
+# Belt and braces for the hash-pinned install payload: never translate these.
+v2/plugin/lib/** -text
+v2/plugin/payload.json -text
+
+# Binary assets are never line-ending translated.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.pdf binary
