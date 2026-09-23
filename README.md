@@ -49,7 +49,7 @@
 
 1. **單一搜尋核心，極速傳輸**：不以粗糙邏輯重寫搜尋。直連 `rg` 二進制檔，完整保留 `.gitignore` 規則、正則語法、Context 旗標與設定檔；原生檔案讀取完全復用 upstream 的邊界限制、安全守衛、二進制/文件路由與輸出組合器。
 2. **正確性先於速度**：修復搜尋結果結尾損壞 JSON 的問題；分頁具備穩定排序與「更多結果」標記；正則反斜線與前置連字號維持字面量解析；統一處理換行（CRLF）與末行無換行的情況。
-3. **真正的程式化並行**：在 `execute_code` 中提供 `from hermes_tools import parallel`。單次 RPC 可並行分發 1–16 個唯讀操作至最多 4 個工作執行緒，嚴格維持輸入順序，並完整保持鑑權、白名單與呼叫配額限制。寫入與終端指令一律拒絕並行。
+3. **真正的程式化並行（目前僅 Windows）**：在 `execute_code` 中提供 `from hermes_tools import parallel`。單次 RPC 可並行分發 1–16 個唯讀操作至最多 4 個工作執行緒，嚴格維持輸入順序，並完整保持鑑權、白名單與呼叫配額限制。寫入與終端指令一律拒絕並行。
 4. **健全的串流常駐暖 Shell（Warm-Shell）**：維護單一持久化 bash，透過 OS pipe 串流傳輸，具備有限記憶體解析、原子快照提交、精確保留 Exit Code/CWD/環境變數。在 macOS/POSIX 上透過 `os.setsid` 與 `os.killpg` 乾淨終止取消與逾時的指令樹；在 Windows 上維持專屬行程管理。
 5. **強化調度准入防禦**：靜態檢查拒絕隱式寫入（`wget`、`curl -o`、`sed w`、分支建立、環境包裝腳本、共用 CWD 異動）。准入不等於授權：被拒絕加速的操作依然會以安全標準循序流程執行。
 6. **更新存活機制**：外掛於記憶體中動態掛載相容 patch，不修改 upstream 源碼。遇到未知變動時主動降級發出警告，絕不覆蓋新版官方程式碼。
@@ -65,7 +65,7 @@
 
 ```bash
 # 將 TAG 換成你要安裝的釋出標籤（勿使用 main，以免安裝到未經審查的變更）
-TAG=v0.1.0
+TAG=v2.1.0
 curl -fsSL -o /tmp/toolrush-install.sh \
   "https://raw.githubusercontent.com/lunkerchen/toolrush/${TAG}/scripts/install.sh"
 
@@ -80,7 +80,7 @@ rm -f /tmp/toolrush-install.sh
 
 或直接 clone 指定標籤後執行（同樣建議先檢視腳本）：
 ```bash
-git clone --depth=1 --branch v0.1.0 https://github.com/lunkerchen/toolrush.git /tmp/toolrush
+git clone --depth=1 --branch v2.1.0 https://github.com/lunkerchen/toolrush.git /tmp/toolrush
 less /tmp/toolrush/scripts/install.sh   # 先檢視
 bash /tmp/toolrush/scripts/install.sh
 rm -rf /tmp/toolrush
@@ -91,7 +91,7 @@ rm -rf /tmp/toolrush
 同樣先下載並檢視，不要使用 `irm ... | iex`。
 
 ```powershell
-$Tag = 'v0.1.0'
+$Tag = 'v2.1.0'
 Invoke-WebRequest -UseBasicParsing `
   -Uri "https://raw.githubusercontent.com/lunkerchen/toolrush/$Tag/scripts/install.ps1" `
   -OutFile "$env:TEMP\toolrush-install.ps1"
@@ -105,7 +105,8 @@ Remove-Item "$env:TEMP\toolrush-install.ps1"
 
 ### 驗證安裝
 ```bash
-python3 ~/.hermes/plugins/toolrush/doctor.py --smoke
+# 用 Hermes 自己的 venv Python 執行，結果才具代表性
+~/.hermes/hermes-agent/venv/bin/python ~/.hermes/plugins/toolrush/doctor.py --smoke
 ```
 
 ### 停用 / 移除
