@@ -100,6 +100,16 @@ class TestCompatibilityPayload:
         assert doc['toolrush_version'] == '2.1.0'
         assert 'warm_shell' in doc['lanes']
 
+    def test_doctor_posix_claims_only_toolrush_lanes(self, tmp_path, need_hermes_install, need_posix_lanes):
+        # ToolRush provides only warm_shell on POSIX; upstream capabilities are
+        # probed, never asserted ready (parallel() is Windows-only in ToolRush).
+        env = _isolated_env(tmp_path, HERMES_ROOT=_real_hermes_root())
+        doc = json.loads(_run_doctor(env).stdout)
+        assert set(doc['lanes']) == {'warm_shell'}
+        assert all(v['provider'] == 'toolrush' for v in doc['lanes'].values())
+        assert set(doc['upstream']) == {'native_read', 'native_search', 'parallel_rpc'}
+        assert all(v['status'] in ('present', 'unavailable') for v in doc['upstream'].values())
+
     def test_doctor_fails_closed_when_hermes_missing(self, tmp_path):
         # Hermes missing entirely from environment: doctor must fail closed with exit 2 and ok=False
         env = _isolated_env(tmp_path)
