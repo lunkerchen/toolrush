@@ -2,6 +2,15 @@
 
 All notable changes to ToolRush will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- `doctor.py` on macOS/Linux no longer reports native read/search/parallel RPC as ToolRush lanes that are "ready" without checking. `lanes` now lists only `warm_shell`; upstream capabilities are probed under `upstream` (`parallel_rpc` is `unavailable`: ToolRush ships `parallel()` on Windows only).
+- README install commands pointed at a nonexistent `v0.1.0` tag; they now use `v2.1.0`, the installer default.
+
+### Added
+- `doctor.py --hermes-root`, a `hermes_python` report field, and a warning when doctor runs on a different Python than Hermes.
+
 ## [2.1.0] - 2026-09-16
 
 ### Added
