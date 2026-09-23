@@ -127,9 +127,7 @@ def register(ctx=None):
                         except Exception:bash=None
                 _COMPAT_STATUS={
                     'warm_shell': {'status':'ready','provider':'toolrush'} if bash else {'status':'degraded','provider':'toolrush','reason':'bash not found'},
-                    'native_read': {'status': 'ready', 'provider': 'upstream'},
-                    'native_search': {'status':'ready','provider':'upstream'} if shutil.which('rg') else {'status':'degraded','provider':'upstream','reason':'rg not found'},
-                    'parallel_rpc': {'status': 'ready', 'provider': 'upstream_sequential_or_worker'}
+                    # Read/search/RPC are upstream's on POSIX; doctor.py probes them.
                 }
             except Exception as exc:
                 _COMPAT_STATUS={'bootstrap':{'status':'degraded','reason':str(exc)}}

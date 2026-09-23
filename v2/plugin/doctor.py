@@ -17,6 +17,7 @@ VERSION = vm.VERSION
 
 parser = argparse.ArgumentParser(description="ToolRush cross-platform doctor")
 parser.add_argument('--smoke', action='store_true', help="Run in-process smoke test")
+parser.add_argument('--hermes-root', help="hermes-agent source root (default: $HERMES_ROOT, ~/.hermes/hermes-agent)")
 args = parser.parse_args()
 
 # Discover platform & python
@@ -39,6 +40,7 @@ if rg_path:
 hermes_root = None
 hermes_ver = None
 for candidate in [
+    args.hermes_root,
     os.environ.get('HERMES_ROOT'),
     str(Path.home() / '.hermes' / 'hermes-agent'),
     str(P.parent.parent / 'hermes-agent'),
@@ -64,6 +66,30 @@ if hermes_root:
     except Exception:
         pass
 
+# Hermes runs under its own venv; lane results from a different interpreter
+# (bytecode payload is pinned to one minor version) are not authoritative.
+hermes_python = None
+if hermes_root:
+    venv_py = Path(hermes_root) / 'venv' / ('Scripts/python.exe' if is_win else 'bin/python')
+    if venv_py.exists():
+        try:
+            out = subprocess.run([str(venv_py), '-c', 'import sys;print("%d.%d" % sys.version_info[:2])'],
+                                 capture_output=True, text=True, timeout=5)
+            hermes_python = {'executable': str(venv_py), 'version': out.stdout.strip() or None}
+        except Exception:
+            hermes_python = {'executable': str(venv_py), 'version': None}
+
+
+def _upstream_has(rel, needle):
+    # ponytail: source-text probe, not an import -- doctor may run under a
+    # different interpreter than Hermes. Upgrade to an import probe run via
+    # hermes_python if upstream starts generating these symbols dynamically.
+    try:
+        return needle in (Path(hermes_root) / rel).read_text(encoding='utf-8')
+    except OSError:
+        return False
+
+
 s = importlib.util.spec_from_file_location('toolrush_doctor_compat', P / 'compat.py')
 c = importlib.util.module_from_spec(s)
 s.loader.exec_module(c)
@@ -78,6 +104,7 @@ result = {
     'python_executable': sys.executable,
     'hermes_root': hermes_root,
     'hermes_version': hermes_ver,
+    'hermes_python': hermes_python,
     'executables': {
         'bash': bash_path,
         'rg': rg_path,
@@ -116,31 +143,29 @@ try:
                     result['lanes'][lane] = {'status': 'degraded', 'provider': 'toolrush', 'reason': str(exc)}
             lanes_ok = all(v['status'] == 'compatible' for v in result['lanes'].values())
     else:
-        # On macOS/POSIX:
-        # - warm_shell is active & ready (provider: toolrush)
-        # - native_read and native_search are handled by Hermes upstream
-        # - parallel_rpc & snapshot patches are Windows-only; POSIX uses native / fallback
+        # On macOS/POSIX ToolRush provides only the warm-shell lane. Read,
+        # search and parallel RPC are whatever upstream Hermes ships; report
+        # what is actually present instead of claiming them.
         warm_status = 'ready' if bash_path else 'degraded'
         result['lanes']['warm_shell'] = {
             'status': warm_status,
             'provider': 'toolrush',
             'reason': None if warm_status == 'ready' else 'bash executable not found'
         }
-        result['lanes']['native_read'] = {
-            'status': 'ready' if hermes_root else 'unverified_clean_environment',
-            'provider': 'upstream',
-            'reason': None if hermes_root else 'hermes_root not present in clean environment'
-        }
-        result['lanes']['native_search'] = {
-            'status': 'ready' if rg_path else 'degraded',
-            'provider': 'upstream',
-            'reason': None if rg_path else 'rg executable not found'
-        }
-        result['lanes']['parallel_rpc'] = {
-            'status': 'unverified_upstream' if not hermes_root else 'ready',
-            'provider': 'upstream',
-            'reason': None if hermes_root else 'hermes_root not present'
-        }
+        if hermes_root:
+            probes = {
+                'native_read': (_upstream_has('tools/file_operations.py', 'def _read_file_native'),
+                                'upstream ShellFileOperations._read_file_native not found'),
+                'native_search': (bool(rg_path), 'rg executable not found'),
+                'parallel_rpc': (_upstream_has('tools/code_execution_tool.py', 'def parallel(')
+                                 or _upstream_has('tools/code_kernel.py', 'def parallel('),
+                                 'upstream hermes_tools has no parallel(); ToolRush ships it on Windows only'),
+            }
+            result['upstream'] = {k: {'status': 'present' if ok else 'unavailable', 'reason': None if ok else why}
+                                  for k, (ok, why) in probes.items()}
+        if hermes_python and hermes_python['version'] != '%d.%d' % sys.version_info[:2]:
+            result['warnings'] = [f"doctor ran on Python {sys.version_info[0]}.{sys.version_info[1]}, "
+                                  f"Hermes runs {hermes_python['version']}; rerun with {hermes_python['executable']}"]
         lanes_ok = bool(bash_path and warm_status == 'ready')
 
     if args.smoke:

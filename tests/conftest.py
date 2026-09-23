@@ -129,7 +129,7 @@ def need_posix_shell():
 def need_posix_lanes():
     """Skip where doctor.py reports the Windows bytecode-patch lane schema.
 
-    On POSIX doctor reports warm_shell/native_read/native_search/parallel_rpc;
+    On POSIX doctor reports lanes={warm_shell} plus upstream probes;
     Windows instead reports the payload lanes (files/rpc/admission/snapshot).
     """
     if sys.platform == "win32":
