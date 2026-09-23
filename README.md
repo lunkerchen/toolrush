@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="#the-problem"><img src="https://img.shields.io/badge/status-已上線運作-22c55e?style=flat-square" alt="shipped and live"/></a>
-  <a href="v2/README.md"><img src="https://img.shields.io/badge/version-2.1.0-f97316?style=flat-square" alt="v2.1.0"/></a>
+  <a href="v2/README.md"><img src="https://img.shields.io/badge/version-2.1.2-f97316?style=flat-square" alt="v2.1.2"/></a>
   <a href="docs/compatibility.md"><img src="https://img.shields.io/badge/platform-macOS%20%2F%20Linux%20%2F%20Windows-38bdf8?style=flat-square" alt="macOS / Linux / Windows"/></a>
   <a href="tests/"><img src="https://img.shields.io/badge/tests-canonical%20suite%20passing-4ade80?style=flat-square" alt="Tests Passing"/></a>
 </p>
@@ -65,7 +65,7 @@
 
 ```bash
 # 將 TAG 換成你要安裝的釋出標籤（勿使用 main，以免安裝到未經審查的變更）
-TAG=v2.1.0
+TAG=v2.1.2
 curl -fsSL -o /tmp/toolrush-install.sh \
   "https://raw.githubusercontent.com/lunkerchen/toolrush/${TAG}/scripts/install.sh"
 
@@ -80,7 +80,7 @@ rm -f /tmp/toolrush-install.sh
 
 或直接 clone 指定標籤後執行（同樣建議先檢視腳本）：
 ```bash
-git clone --depth=1 --branch v2.1.0 https://github.com/lunkerchen/toolrush.git /tmp/toolrush
+git clone --depth=1 --branch v2.1.2 https://github.com/lunkerchen/toolrush.git /tmp/toolrush
 less /tmp/toolrush/scripts/install.sh   # 先檢視
 bash /tmp/toolrush/scripts/install.sh
 rm -rf /tmp/toolrush
@@ -91,7 +91,7 @@ rm -rf /tmp/toolrush
 同樣先下載並檢視，不要使用 `irm ... | iex`。
 
 ```powershell
-$Tag = 'v2.1.0'
+$Tag = 'v2.1.2'
 Invoke-WebRequest -UseBasicParsing `
   -Uri "https://raw.githubusercontent.com/lunkerchen/toolrush/$Tag/scripts/install.ps1" `
   -OutFile "$env:TEMP\toolrush-install.ps1"

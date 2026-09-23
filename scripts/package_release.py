@@ -2,7 +2,7 @@
 """Build a deterministic release zip plus SHA256SUMS and MANIFEST.json.
 
 Usage:
-    python3 scripts/package_release.py --version 2.1.0 [--output-dir dist] [--source-dir v2/plugin]
+    python3 scripts/package_release.py --version 2.1.2 [--output-dir dist] [--source-dir v2/plugin]
 
 Determinism: fixed timestamps, sorted walk, normalized permissions. Two runs
 over identical sources produce byte-identical zips.
