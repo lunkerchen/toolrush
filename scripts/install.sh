@@ -6,7 +6,7 @@ HERMES_DIR="${HERMES_HOME:-$HOME/.hermes}"
 PLUGINS_DIR="${HERMES_DIR}/plugins"
 TARGET_DIR="${PLUGINS_DIR}/toolrush"
 REPO_URL="${TOOLRUSH_REPO:-https://github.com/lunkerchen/toolrush.git}"
-VERSION_TAG="${TOOLRUSH_VERSION:-v2.1.0}"
+VERSION_TAG="${TOOLRUSH_VERSION:-v2.1.2}"
 ALLOW_UNPINNED="${TOOLRUSH_ALLOW_UNPINNED:-0}"
 # Release artifact: local path, file:// or https:// URL. Empty means "install from git".
 RELEASE_ARCHIVE="${TOOLRUSH_RELEASE_ARCHIVE:-}"

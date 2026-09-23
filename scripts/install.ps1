@@ -2,7 +2,7 @@
 param(
     [string]$HermesHome = "$env:USERPROFILE\.hermes",
     [string]$RepoUrl = "https://github.com/lunkerchen/toolrush.git",
-    [string]$Version = "v2.1.0",
+    [string]$Version = "v2.1.2",
     [switch]$AllowUnpinned
 )
 

@@ -97,7 +97,7 @@ class TestCompatibilityPayload:
         assert res.returncode == 0, f"Doctor failed: {res.stdout}\n{res.stderr}"
         doc = json.loads(res.stdout)
         assert doc['ok'] is True
-        assert doc['toolrush_version'] == '2.1.0'
+        assert doc['toolrush_version'] == '2.1.2'
         assert 'warm_shell' in doc['lanes']
 
     def test_doctor_posix_claims_only_toolrush_lanes(self, tmp_path, need_hermes_install, need_posix_lanes):
