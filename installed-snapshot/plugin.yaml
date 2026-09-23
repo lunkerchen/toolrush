@@ -1,0 +1,7 @@
+name: toolrush
+version: 2.1.1
+description: "macOS-native low-overhead execution layer for Hermes Agent: streaming warm shell, process tree cleanup, and parallel read RPC."
+author: OnlyTerp (macOS port by Laban)
+capabilities:
+  - tools.override
+hooks: []
